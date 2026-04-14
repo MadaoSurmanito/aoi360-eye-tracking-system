@@ -1,0 +1,46 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.venv/
+**/venv/
+*.pyc
+*.pyo
+*.pyd
+*.ipynb_checkpoints/
+
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+UserSettings/
+MemoryCaptures/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+
+# Data pesada / generada
+data/raw/videos/*
+data/interim/*
+data/processed/masks/*
+data/processed/id_maps/*
+data/processed/gaze_logs/*
+data/exports/*
+!data/raw/videos/.gitkeep
+!data/raw/reference-images/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+!data/exports/.gitkeep
