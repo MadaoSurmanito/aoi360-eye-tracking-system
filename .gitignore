@@ -1,4 +1,4 @@
-# OS / Editor
+# OS / editors
 .DS_Store
 Thumbs.db
 .vscode/
@@ -8,6 +8,7 @@ Thumbs.db
 **/__pycache__/
 **/.pytest_cache/
 **/.mypy_cache/
+**/.ruff_cache/
 **/.venv/
 **/venv/
 *.pyc
@@ -32,13 +33,15 @@ MemoryCaptures/
 *.user
 *.userprefs
 
-# Data pesada / generada
+# Generated / heavy data
 data/raw/videos/*
 data/interim/*
 data/processed/masks/*
 data/processed/id_maps/*
 data/processed/gaze_logs/*
 data/exports/*
+
+# Keep placeholders
 !data/raw/videos/.gitkeep
 !data/raw/reference-images/.gitkeep
 !data/interim/.gitkeep
