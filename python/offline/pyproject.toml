@@ -1,0 +1,11 @@
+[project]
+name = "aoi360-pipeline"
+version = "0.1.0"
+description = "Offline AOI generation pipeline for 360 eye tracking"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
