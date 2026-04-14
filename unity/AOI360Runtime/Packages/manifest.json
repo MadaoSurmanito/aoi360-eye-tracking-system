@@ -1,6 +1,10 @@
 {
   "dependencies": {
+    "com.htc.upm.vive.openxr": "https://github.com/ViveSoftware/VIVE-OpenXR.git?path=com.htc.upm.vive.openxr",
     "com.unity.multiplayer.center": "1.0.1",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.xr.management": "4.5.4",
+    "com.unity.xr.openxr": "1.16.1",
     "com.unity.modules.accessibility": "1.0.0",
     "com.unity.modules.adaptiveperformance": "1.0.0",
     "com.unity.modules.ai": "1.0.0",
