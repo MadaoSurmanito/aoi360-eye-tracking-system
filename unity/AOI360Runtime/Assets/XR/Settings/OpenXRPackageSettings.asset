@@ -860,7 +860,7 @@ MonoBehaviour:
   m_Name: HTCViveTrackerProfile Standalone
   m_EditorClassIdentifier: VIVE.OpenXR::UnityEngine.XR.OpenXR.Features.Interactions.HTCViveTrackerProfile
   m_enabled: 0
-  nameUi: HTC VIVE Tracker Profile
+  nameUi: HTC Vive Tracker Profile
   version: 0.0.1
   featureIdInternal: com.massive.openxr.feature.input.htcvivetracker
   openxrExtensionStrings: XR_HTCX_vive_tracker_interaction
@@ -1113,7 +1113,7 @@ MonoBehaviour:
   m_Name: ViveHandInteractionExt Android
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.Hand.ViveHandInteractionExt
   m_enabled: 0
-  nameUi: VIVE XR Hand Interaction Ext (Deprecated)
+  nameUi: VIVE XR Hand Interaction Ext
   version: 1.0.0
   featureIdInternal: vive.openxr.feature.hand.interaction.ext
   openxrExtensionStrings: XR_EXT_hand_interaction
@@ -1223,6 +1223,7 @@ MonoBehaviour:
   m_Name: ViveCompositionLayerEquirect Android
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.CompositionLayer.ViveCompositionLayerEquirect
   m_enabled: 0
+  <failedInitialization>k__BackingField: 0
   nameUi: VIVE XR Composition Layer (Equirect)
   version: 1.0.0
   featureIdInternal: vive.openxr.feature.compositionlayer.equirect
@@ -1232,6 +1233,8 @@ MonoBehaviour:
   targetOpenXRApiVersion: 
   required: 0
   customRuntimeLoaderName: 
+  m_EquirectExtensionEnabled: 1
+  m_Equirect2ExtensionEnabled: 1
 --- !u!114 &-256968290391337498
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1410,11 +1413,9 @@ MonoBehaviour:
   - {fileID: -5553630316383428565}
   - {fileID: -5279315542669143433}
   - {fileID: 6618134154011720741}
-  - {fileID: -447734200781782709}
   - {fileID: 5426343307384714262}
   - {fileID: -1872906056768416920}
   - {fileID: -7602580806585315108}
-  - {fileID: 1093565502468439730}
   - {fileID: -6587226687711459002}
   - {fileID: -7990549685208837251}
   - {fileID: -3056765334259206236}
@@ -1482,6 +1483,7 @@ MonoBehaviour:
   m_Name: ViveEnterpriseCommand Android
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.Enterprise.ViveEnterpriseCommand
   m_enabled: 0
+  <failedInitialization>k__BackingField: 0
   nameUi: VIVE XR Enterprise Command
   version: 0.1
   featureIdInternal: vive.openxr.feature.enterprise.command
