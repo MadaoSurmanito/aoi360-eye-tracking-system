@@ -504,7 +504,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 03242486774e40c4683edc65026f5c89, type: 3}
   m_Name: VIVEFocus3Feature Android
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.VIVEFocus3Feature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: VIVE XR Support
   version: 1.0.0
   featureIdInternal: com.unity.openxr.feature.vivefocus3
@@ -526,7 +526,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9eca1674b64bae840af3a53d3ae576ec, type: 3}
   m_Name: ViveEyeTracker Android
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.EyeTracker.ViveEyeTracker
-  m_enabled: 0
+  m_enabled: 1
   nameUi: VIVE XR Eye Tracker (Beta)
   version: 1.0.0
   featureIdInternal: vive.openxr.feature.eye.tracker
@@ -881,7 +881,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe9ba5ccf170d54478c5df33f98aabc5, type: 3}
   m_Name: VIVEFocus3Profile Android
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.VIVEFocus3Profile
-  m_enabled: 0
+  m_enabled: 1
   nameUi: VIVE Focus 3 Controller Interaction
   version: 1.0.0
   featureIdInternal: vive.openxr.feature.focus3controller
@@ -1684,22 +1684,6 @@ MonoBehaviour:
   m_Name: Standalone
   m_EditorClassIdentifier: Unity.XR.OpenXR::UnityEngine.XR.OpenXR.OpenXRSettings
   features:
-  - {fileID: -6276554867833282755}
-  - {fileID: -3408298167150237283}
-  - {fileID: -8436916211707240352}
-  - {fileID: -4678995264431688022}
-  - {fileID: -6103247435476375289}
-  - {fileID: -5183780474857559998}
-  - {fileID: 6810912569977978367}
-  - {fileID: -89570205609264224}
-  - {fileID: -9143803035471905275}
-  - {fileID: 964700784784474564}
-  - {fileID: -2000411463184773038}
-  - {fileID: 4612877775324069923}
-  - {fileID: 504187637131301491}
-  - {fileID: 2180759776627624717}
-  - {fileID: -1728631644169755539}
-  - {fileID: -668093706341881567}
   - {fileID: -1312528712904924049}
   - {fileID: -7615067400087168781}
   - {fileID: -916481637495477187}
@@ -1708,6 +1692,7 @@ MonoBehaviour:
   - {fileID: 9172163648769834863}
   - {fileID: -1165710675997682770}
   - {fileID: 1618839834337514401}
+  - {fileID: -3408298167150237283}
   - {fileID: -3861876570682785884}
   - {fileID: -8450998587185489416}
   - {fileID: -5369429446986030088}
@@ -1718,6 +1703,21 @@ MonoBehaviour:
   - {fileID: -6299849697758426742}
   - {fileID: -2705734465452207517}
   - {fileID: -2218770794552538738}
+  - {fileID: -668093706341881567}
+  - {fileID: -6103247435476375289}
+  - {fileID: 6810912569977978367}
+  - {fileID: -2000411463184773038}
+  - {fileID: 2180759776627624717}
+  - {fileID: -9143803035471905275}
+  - {fileID: 504187637131301491}
+  - {fileID: -5183780474857559998}
+  - {fileID: 4612877775324069923}
+  - {fileID: -89570205609264224}
+  - {fileID: -4678995264431688022}
+  - {fileID: 964700784784474564}
+  - {fileID: -8436916211707240352}
+  - {fileID: -6276554867833282755}
+  - {fileID: -1728631644169755539}
   - {fileID: -4167990154970511411}
   customLoaderName: 
   m_renderMode: 1
