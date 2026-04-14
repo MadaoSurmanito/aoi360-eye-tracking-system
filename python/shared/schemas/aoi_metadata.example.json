@@ -1,0 +1,23 @@
+{
+  "video": "sample_360_video.mp4",
+  "fps": 30,
+  "idMapResolution": [1920, 960],
+  "aois": [
+    {
+      "id": 1,
+      "name": "target_object",
+      "prompt": "target object",
+      "category": "object/main",
+      "parentId": null,
+      "color": "#FF0000"
+    },
+    {
+      "id": 2,
+      "name": "secondary_object",
+      "prompt": "secondary object",
+      "category": "object/secondary",
+      "parentId": null,
+      "color": "#00FF00"
+    }
+  ]
+}
