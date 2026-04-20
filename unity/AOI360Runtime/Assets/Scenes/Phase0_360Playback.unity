@@ -270,7 +270,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.AOI.AOILookup
   sphericalMapper: {fileID: 1403058415}
-  aoiMapTexture: {fileID: 2800000, guid: 7422bdf4dc9a0f942bb6c7b429b82a9e, type: 3}
+  aoiMapTexture: {fileID: 2800000, guid: 06eef48c16b9b5c4480dab1d148c2e77, type: 3}
   logAOIChanges: 1
   logContinuous: 0
   logEveryNFrames: 30
@@ -430,6 +430,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1149743412}
+  - component: {fileID: 1149743413}
   m_Layer: 0
   m_Name: LogginRoot
   m_TagString: Untagged
@@ -452,6 +453,30 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1149743413
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1149743411}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d5a2312c575da44588151511e787431, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.Logging.DataRecorder
+  videoPlayback: {fileID: 730990565}
+  sphericalMapper: {fileID: 1403058415}
+  aoiLookup: {fileID: 233558556}
+  recordOnStart: 1
+  autoExportOnDisable: 1
+  participantId: P001
+  sessionId: S001
+  videoId: sample360
+  outputFileName: phase0_gaze_log.csv
+  logRecordingState: 1
+  logEveryNFrames: 0
+  frameLogInterval: 60
 --- !u!1 &1390749067
 GameObject:
   m_ObjectHideFlags: 0

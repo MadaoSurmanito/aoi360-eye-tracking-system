@@ -65,18 +65,17 @@ namespace AOI360.Runtime.AOI
             {
                 return 0;
             }
-
-            // AOI 1 = rojo
-            if (r > 0.8f && g < 0.2f && b < 0.2f)
+            // AOI 1: rojo puro
+            else if (r > 0.9f && g < 0.1f && b < 0.1f)
             {
                 return 1;
             }
-
-            // AOI 2 = verde
-            if (g > 0.8f && r < 0.2f && b < 0.2f)
+            // AOI 2: verde puro
+            else if (r < 0.1f && g > 0.9f && b < 0.1f)
             {
                 return 2;
             }
+
 
             return 0;
         }
