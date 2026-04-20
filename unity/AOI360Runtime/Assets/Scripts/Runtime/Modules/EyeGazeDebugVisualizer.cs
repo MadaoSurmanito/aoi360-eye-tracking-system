@@ -1,3 +1,5 @@
+using AOI360.Runtime.AOI;
+using AOI360.Runtime.Mapping;
 using EyeGaze.Runtime.Core;
 using UnityEngine;
 
@@ -28,6 +30,29 @@ namespace EyeGaze.Runtime.Modules
         // Color of the offset visualization between camera and gaze origin
         [SerializeField] private Color debugOffsetLineColor = Color.white;
 
+        [Header("360 Debug")]
+        // Optional mapper used to inspect current UV values
+        [SerializeField] private SphericalMapper sphericalMapper;
+
+        // Optional AOI lookup used to inspect which AOI is currently being looked at
+        [SerializeField] private AOILookup aoiLookup;
+
+        // Center transform of the 360 sphere
+        [SerializeField] private Transform sphereCenter;
+
+        // Radius of the 360 sphere
+        [SerializeField] private float sphereRadius = 5f;
+
+        // Optional marker placed on the hit point over the 360 sphere
+        [SerializeField] private Transform hitMarker;
+
+        // Enables or disables the hit marker visualization
+        [SerializeField] private bool enableHitMarker = true;
+
+        // Enables or disables periodic logs about UV and AOI data
+        [SerializeField] private bool enableAOILogging = true;
+
+        [Header("Logs")]
         // Enables or disables periodic debug logs comparing the gaze origin and the camera position
         [SerializeField] private bool enableDebugLogs = false;
 
@@ -46,6 +71,7 @@ namespace EyeGaze.Runtime.Modules
             maxDistance = system.MaxDistance;
 
             ConfigureAllLineRenderers();
+            SetHitMarkerEnabled(false);
         }
 
         // Called every frame when valid gaze data is available.
@@ -72,6 +98,7 @@ namespace EyeGaze.Runtime.Modules
             SetLineRendererEnabled(debugLineRenderer, false);
             SetLineRendererEnabled(debugCameraLineRenderer, false);
             SetLineRendererEnabled(debugOffsetLineRenderer, false);
+            SetHitMarkerEnabled(false);
         }
 
         // Update all debug visuals and logs using the latest gaze data
@@ -86,6 +113,7 @@ namespace EyeGaze.Runtime.Modules
             DrawGazeRay(gazeOrigin, gazeEndPoint);
             DrawReferenceCameraRay();
             DrawCameraToGazeOffset(gazeOrigin);
+            UpdateSphereHitMarker(gazeOrigin, gazeDirection);
             WritePeriodicDebugLog(gazeOrigin, gazeDirection);
         }
 
@@ -139,10 +167,32 @@ namespace EyeGaze.Runtime.Modules
             debugOffsetLineRenderer.SetPosition(1, gazeOrigin);
         }
 
-        // Periodically log the gaze origin, the camera position, and the difference between them for debugging alignment issues
+        // Place a marker where the gaze ray intersects the 360 sphere
+        private void UpdateSphereHitMarker(Vector3 gazeOrigin, Vector3 gazeDirection)
+        {
+            if (!enableHitMarker || sphereCenter == null || hitMarker == null)
+            {
+                SetHitMarkerEnabled(false);
+                return;
+            }
+
+            if (!TryIntersectRaySphere(gazeOrigin, gazeDirection.normalized, sphereCenter.position, sphereRadius, out Vector3 hitPoint))
+            {
+                SetHitMarkerEnabled(false);
+                return;
+            }
+
+            SetHitMarkerEnabled(true);
+            hitMarker.position = hitPoint;
+
+            Vector3 outwardNormal = (hitPoint - sphereCenter.position).normalized;
+            hitMarker.rotation = Quaternion.LookRotation(outwardNormal);
+        }
+
+        // Periodically log the gaze origin, camera position, UV and AOI data
         private void WritePeriodicDebugLog(Vector3 gazeOrigin, Vector3 gazeDirection)
         {
-            if (!enableDebugLogs || referenceCamera == null || debugLogEveryNFrames <= 0)
+            if ((!enableDebugLogs && !enableAOILogging) || debugLogEveryNFrames <= 0)
             {
                 return;
             }
@@ -152,25 +202,107 @@ namespace EyeGaze.Runtime.Modules
                 return;
             }
 
-            Vector3 cameraPosition = referenceCamera.transform.position;
-            Vector3 offset = gazeOrigin - cameraPosition;
+            string cameraInfo = "";
+            if (enableDebugLogs && referenceCamera != null)
+            {
+                Vector3 cameraPosition = referenceCamera.transform.position;
+                Vector3 offset = gazeOrigin - cameraPosition;
 
-            Debug.Log(
-                $"[EYE DEBUG] " +
-                $"GazeOrigin={gazeOrigin} | " +
-                $"CameraPosition={cameraPosition} | " +
-                $"Offset={offset} | " +
-                $"OffsetMagnitude={offset.magnitude} | " +
-                $"Direction={gazeDirection}"
-            );
+                cameraInfo =
+                    $"GazeOrigin={gazeOrigin} | " +
+                    $"CameraPosition={cameraPosition} | " +
+                    $"Offset={offset} | " +
+                    $"OffsetMagnitude={offset.magnitude} | " +
+                    $"Direction={gazeDirection}";
+            }
+
+            string mapperInfo = "";
+            if (enableAOILogging && sphericalMapper != null && sphericalMapper.HasValidDirection)
+            {
+                mapperInfo =
+                    $" | UV={sphericalMapper.CurrentUV} | " +
+                    $"Azimuth={sphericalMapper.CurrentAzimuthRad:F3} | " +
+                    $"Elevation={sphericalMapper.CurrentElevationRad:F3}";
+            }
+
+            string aoiInfo = "";
+            if (enableAOILogging && aoiLookup != null)
+            {
+                aoiInfo = $" | AOI={GetAOIDebugText()}";
+            }
+
+            Debug.Log($"[EYE DEBUG] {cameraInfo}{mapperInfo}{aoiInfo}");
         }
 
-        // Enable or disable a LineRenderer safely
+        private string GetAOIDebugText()
+        {
+            // Adapta este método a la API real de tu AOILookup
+            // según los nombres exactos que tengas en tu proyecto.
+            return "Revisar API actual de AOILookup";
+        }
+
+        private bool TryIntersectRaySphere(
+            Vector3 rayOrigin,
+            Vector3 rayDirection,
+            Vector3 sphereCenterWorld,
+            float radius,
+            out Vector3 hitPoint)
+        {
+            hitPoint = Vector3.zero;
+
+            Vector3 oc = rayOrigin - sphereCenterWorld;
+
+            float a = Vector3.Dot(rayDirection, rayDirection);
+            float b = 2f * Vector3.Dot(oc, rayDirection);
+            float c = Vector3.Dot(oc, oc) - (radius * radius);
+
+            float discriminant = b * b - 4f * a * c;
+            if (discriminant < 0f)
+            {
+                return false;
+            }
+
+            float sqrtDiscriminant = Mathf.Sqrt(discriminant);
+            float t1 = (-b - sqrtDiscriminant) / (2f * a);
+            float t2 = (-b + sqrtDiscriminant) / (2f * a);
+
+            float t = -1f;
+
+            if (t1 > 0f && t2 > 0f)
+            {
+                t = Mathf.Min(t1, t2);
+            }
+            else if (t1 > 0f)
+            {
+                t = t1;
+            }
+            else if (t2 > 0f)
+            {
+                t = t2;
+            }
+
+            if (t <= 0f)
+            {
+                return false;
+            }
+
+            hitPoint = rayOrigin + rayDirection * t;
+            return true;
+        }
+
         private void SetLineRendererEnabled(LineRenderer lineRenderer, bool value)
         {
             if (lineRenderer != null)
             {
                 lineRenderer.enabled = value;
+            }
+        }
+
+        private void SetHitMarkerEnabled(bool value)
+        {
+            if (hitMarker != null)
+            {
+                hitMarker.gameObject.SetActive(value);
             }
         }
     }

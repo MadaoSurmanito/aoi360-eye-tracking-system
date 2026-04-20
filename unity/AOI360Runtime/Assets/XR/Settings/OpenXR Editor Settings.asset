@@ -14,7 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Unity.XR.OpenXR.Editor::UnityEditor.XR.OpenXR.OpenXREditorSettings
   Keys: 0100000007000000
   Values:
-  - featureSets: []
+  - featureSets:
+    - com.htc.vive.openxr.featureset.vivexr
   - featureSets:
     - com.htc.vive.openxr.featureset.vivexr
   m_vulkanAdditionalGraphicsQueue: 0

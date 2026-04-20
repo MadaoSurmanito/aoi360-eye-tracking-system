@@ -68,6 +68,8 @@ namespace EyeGaze.Runtime.Core
             gazePositionAction.Enable();
             gazeRotationAction.Enable();
             gazeTrackedAction.Enable();
+
+            Debug.Log("[EyeGazeSystem] Eye gaze actions enabled.");
         }
 
         // Disable InputActions and clean state
@@ -170,14 +172,23 @@ namespace EyeGaze.Runtime.Core
         {
             Vector3 gazePosition = gazePositionAction.ReadValue<Vector3>();
             Quaternion gazeRotation = gazeRotationAction.ReadValue<Quaternion>();
-            bool isTracked = gazeTrackedAction.ReadValue<float>() > 0.5f;
+            float trackedValue = gazeTrackedAction.ReadValue<float>();
 
+            bool isTracked = trackedValue > 0.5f;
             hasValidGazePose = isTracked;
 
             if (hasValidGazePose)
             {
                 lastValidPosition = gazePosition;
                 lastValidRotation = gazeRotation;
+            }
+
+            if (Time.frameCount % 60 == 0)
+            {
+                Debug.Log(
+                    $"[EyeGazeSystem] tracked={isTracked} " +
+                    $"pos={gazePosition} rot={gazeRotation.eulerAngles}"
+                );
             }
         }
 
