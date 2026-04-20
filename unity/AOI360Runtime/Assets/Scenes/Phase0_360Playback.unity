@@ -130,6 +130,7 @@ GameObject:
   - component: {fileID: 189643246}
   - component: {fileID: 189643245}
   - component: {fileID: 189643244}
+  - component: {fileID: 189643247}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -205,12 +206,25 @@ Transform:
   m_GameObject: {fileID: 189643243}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &189643247
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 189643243}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e9821fa4b381e214dba0bf0ecaa251ab, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.Core.EditorLookTest
+  mouseSensitivity: 2
 --- !u!1 &233558554
 GameObject:
   m_ObjectHideFlags: 0
@@ -220,6 +234,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 233558555}
+  - component: {fileID: 233558556}
   m_Layer: 0
   m_Name: AOIRoot
   m_TagString: Untagged
@@ -236,12 +251,29 @@ Transform:
   m_GameObject: {fileID: 233558554}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -1.42857, y: 0, z: -11.42857}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &233558556
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 233558554}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: deb6b6eaa107e6949be1a870fa5e432e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.AOI.AOILookup
+  sphericalMapper: {fileID: 1403058415}
+  aoiMapTexture: {fileID: 2800000, guid: 7422bdf4dc9a0f942bb6c7b429b82a9e, type: 3}
+  logAOIChanges: 1
+  logContinuous: 0
+  logEveryNFrames: 30
 --- !u!1 &333416533
 GameObject:
   m_ObjectHideFlags: 0
@@ -348,6 +380,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 730990564}
+  - component: {fileID: 730990565}
   m_Layer: 0
   m_Name: VideoRoot
   m_TagString: Untagged
@@ -370,6 +403,24 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &730990565
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 730990563}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 62fc31960f873a14e90b99afff563c28, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.Video.VideoPlayback
+  videoFileName: sample360.mp4
+  playOnStart: 1
+  loop: 0
+  targetTexture: {fileID: 8400000, guid: 4627997114277f641b5710201848229e, type: 2}
+  skyboxMaterial: {fileID: 2100000, guid: c50b62a524c3d4a4c818befcb144d567, type: 2}
+  logVideoEvents: 0
 --- !u!1 &1149743411
 GameObject:
   m_ObjectHideFlags: 0
@@ -441,6 +492,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1403058414}
+  - component: {fileID: 1403058415}
   m_Layer: 0
   m_Name: GazeRoot
   m_TagString: Untagged
@@ -463,6 +515,21 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1403058415
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1403058413}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 88f6b9ada9618a842933e5e2cf2ca342, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.Mapping.SphericalMapper
+  gazeDirectionSource: {fileID: 189643246}
+  logValues: 0
+  logEveryNFrames: 30
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
