@@ -47,3 +47,4 @@ data/exports/*
 !data/interim/.gitkeep
 !data/processed/.gitkeep
 !data/exports/.gitkeep
+/unity/AOI360Runtime/Assets/StreamingAssets/Videos
