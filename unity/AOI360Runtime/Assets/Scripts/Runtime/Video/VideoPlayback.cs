@@ -5,12 +5,13 @@ using UnityEngine.Video;
 
 namespace AOI360.Runtime.Video
 {
+    [RequireComponent(typeof(VideoPlayer))]
     public class VideoPlayback : MonoBehaviour
     {
         [Header("Video")]
         [SerializeField] private string videoFileName = "sample360.mp4";
         [SerializeField] private bool playOnStart = true;
-        [SerializeField] private bool loop = false;
+        [SerializeField] private bool loop = true;
 
         [Header("Output")]
         [SerializeField] private RenderTexture targetTexture;
@@ -49,6 +50,7 @@ namespace AOI360.Runtime.Video
 
             videoPlayer.prepareCompleted += HandlePrepareCompleted;
             videoPlayer.errorReceived += HandleErrorReceived;
+            videoPlayer.loopPointReached += HandleLoopPointReached;
 
             // Asignamos la textura al material del skybox
             if (skyboxMaterial != null && targetTexture != null)
@@ -62,6 +64,13 @@ namespace AOI360.Runtime.Video
         private IEnumerator Start()
         {
             string videoPath = Path.Combine(Application.streamingAssetsPath, "Videos", videoFileName);
+
+            if (!File.Exists(videoPath))
+            {
+                Debug.LogError($"[VideoPlayback] No se encontró el vídeo en: {videoPath}");
+                yield break;
+            }
+
             videoPlayer.source = VideoSource.Url;
             videoPlayer.url = videoPath;
 
@@ -104,6 +113,14 @@ namespace AOI360.Runtime.Video
             Debug.LogError($"[VideoPlayback] Error reproduciendo vídeo: {message}");
         }
 
+        private void HandleLoopPointReached(VideoPlayer source)
+        {
+            if (logVideoEvents)
+            {
+                Debug.Log("[VideoPlayback] El vídeo ha llegado al final y continuará en loop.");
+            }
+        }
+
         public void PlayVideo()
         {
             if (videoPlayer != null && isPrepared)
@@ -125,6 +142,16 @@ namespace AOI360.Runtime.Video
             if (videoPlayer != null)
             {
                 videoPlayer.Stop();
+            }
+        }
+
+        public void SetLoop(bool value)
+        {
+            loop = value;
+
+            if (videoPlayer != null)
+            {
+                videoPlayer.isLooping = loop;
             }
         }
     }

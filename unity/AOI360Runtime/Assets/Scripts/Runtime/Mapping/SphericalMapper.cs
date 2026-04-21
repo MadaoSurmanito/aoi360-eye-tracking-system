@@ -4,106 +4,56 @@ namespace AOI360.Runtime.Mapping
 {
     public class SphericalMapper : MonoBehaviour
     {
-        public enum GazeInputMode
-        {
-            Auto,
-            TransformForwardOnly,
-            ExternalDirectionOnly
-        }
-
         [Header("Gaze source")]
-        [SerializeField] private GazeInputMode inputMode = GazeInputMode.Auto;
         [SerializeField] private Transform gazeDirectionSource;
+
+        [Header("Fallback")]
+        [SerializeField] private bool allowFallbackToTransformSource = true;
 
         [Header("Debug")]
         [SerializeField] private bool logValues = true;
         [SerializeField] private int logEveryNFrames = 30;
 
+        private bool hasExternalGazeDirection = false;
+        private Vector3 externalGazeDirection = Vector3.forward;
+
+        public bool HasValidDirection { get; private set; }
         public Vector3 CurrentDirection { get; private set; }
         public float CurrentAzimuthRad { get; private set; }
         public float CurrentElevationRad { get; private set; }
         public Vector2 CurrentUV { get; private set; }
 
-        public bool HasValidDirection { get; private set; }
-        public bool IsUsingExternalDirection { get; private set; }
-
-        private Vector3 externalDirection;
-        private bool hasExternalDirection;
-
         private void Update()
         {
-            if (!TryResolveDirection(out Vector3 dir, out bool usingExternalDirection))
+            if (!TryGetCurrentDirection(out Vector3 dir))
             {
-                HasValidDirection = false;
+                ClearComputedState();
                 return;
             }
 
-            HasValidDirection = true;
-            IsUsingExternalDirection = usingExternalDirection;
             CurrentDirection = dir;
 
+            // Azimut: ángulo horizontal respecto al eje Z
             float azimuth = Mathf.Atan2(dir.x, dir.z);
+
+            // Elevación: ángulo vertical
             float elevation = Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f));
 
+            // Conversión a UV equirectangular
             float u = (azimuth + Mathf.PI) / (2f * Mathf.PI);
             float v = 0.5f - (elevation / Mathf.PI);
 
             CurrentAzimuthRad = azimuth;
             CurrentElevationRad = elevation;
             CurrentUV = new Vector2(Mathf.Repeat(u, 1f), Mathf.Clamp01(v));
+            HasValidDirection = true;
 
             if (logValues && Time.frameCount % Mathf.Max(1, logEveryNFrames) == 0)
             {
                 Debug.Log(
-                    $"[SphericalMapper] source={(IsUsingExternalDirection ? "external" : "transform")} | " +
-                    $"dir={CurrentDirection} | az={CurrentAzimuthRad:F3} rad | " +
+                    $"[SphericalMapper] dir={CurrentDirection} | az={CurrentAzimuthRad:F3} rad | " +
                     $"el={CurrentElevationRad:F3} rad | uv=({CurrentUV.x:F3}, {CurrentUV.y:F3})"
                 );
-            }
-        }
-
-        private bool TryResolveDirection(out Vector3 direction, out bool usingExternalDirection)
-        {
-            direction = Vector3.zero;
-            usingExternalDirection = false;
-
-            switch (inputMode)
-            {
-                case GazeInputMode.ExternalDirectionOnly:
-                    if (!hasExternalDirection || externalDirection.sqrMagnitude <= 0.000001f)
-                    {
-                        return false;
-                    }
-
-                    direction = externalDirection.normalized;
-                    usingExternalDirection = true;
-                    return true;
-
-                case GazeInputMode.TransformForwardOnly:
-                    if (gazeDirectionSource == null)
-                    {
-                        return false;
-                    }
-
-                    direction = gazeDirectionSource.forward.normalized;
-                    return true;
-
-                case GazeInputMode.Auto:
-                default:
-                    if (hasExternalDirection && externalDirection.sqrMagnitude > 0.000001f)
-                    {
-                        direction = externalDirection.normalized;
-                        usingExternalDirection = true;
-                        return true;
-                    }
-
-                    if (gazeDirectionSource == null)
-                    {
-                        return false;
-                    }
-
-                    direction = gazeDirectionSource.forward.normalized;
-                    return true;
             }
         }
 
@@ -112,17 +62,55 @@ namespace AOI360.Runtime.Mapping
             gazeDirectionSource = source;
         }
 
-        public void SetExternalGazeDirection(Vector3 direction, bool isValid = true)
+        public void SetExternalGazeDirection(Vector3 direction, bool isValid)
         {
-            hasExternalDirection = isValid && direction.sqrMagnitude > 0.000001f;
-            externalDirection = hasExternalDirection ? direction.normalized : Vector3.zero;
+            if (!isValid || direction.sqrMagnitude <= 0.000001f)
+            {
+                hasExternalGazeDirection = false;
+                return;
+            }
+
+            externalGazeDirection = direction.normalized;
+            hasExternalGazeDirection = true;
         }
 
         public void ClearExternalGazeDirection()
         {
-            hasExternalDirection = false;
-            externalDirection = Vector3.zero;
-            IsUsingExternalDirection = false;
+            hasExternalGazeDirection = false;
+        }
+
+        private bool TryGetCurrentDirection(out Vector3 direction)
+        {
+            // Prioridad 1: dirección externa proveniente del eye tracking real
+            if (hasExternalGazeDirection)
+            {
+                direction = externalGazeDirection;
+                return true;
+            }
+
+            // Prioridad 2: fallback temporal usando la cámara / transform de referencia
+            if (allowFallbackToTransformSource && gazeDirectionSource != null)
+            {
+                Vector3 fallbackDirection = gazeDirectionSource.forward;
+
+                if (fallbackDirection.sqrMagnitude > 0.000001f)
+                {
+                    direction = fallbackDirection.normalized;
+                    return true;
+                }
+            }
+
+            direction = Vector3.zero;
+            return false;
+        }
+
+        private void ClearComputedState()
+        {
+            HasValidDirection = false;
+            CurrentDirection = Vector3.zero;
+            CurrentAzimuthRad = 0f;
+            CurrentElevationRad = 0f;
+            CurrentUV = Vector2.zero;
         }
     }
 }

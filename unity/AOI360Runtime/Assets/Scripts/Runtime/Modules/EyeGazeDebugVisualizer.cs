@@ -27,8 +27,12 @@ namespace EyeGaze.Runtime.Modules
         // Optional LineRenderer to visualize the offset between the camera position and the gaze origin
         [SerializeField] private LineRenderer debugOffsetLineRenderer;
 
-        // Color of the offset visualization between camera and gaze origin
+        // Color of the offset visualization between the camera position and the gaze origin
         [SerializeField] private Color debugOffsetLineColor = Color.white;
+
+        [Header("Fallback")]
+        // When tracking is lost, keep showing a debug ray using the reference camera forward
+        [SerializeField] private bool showFallbackWhenTrackingLost = true;
 
         [Header("360 Debug")]
         // Optional mapper used to inspect current UV values
@@ -56,7 +60,7 @@ namespace EyeGaze.Runtime.Modules
         // Enables or disables periodic debug logs comparing the gaze origin and the camera position
         [SerializeField] private bool enableDebugLogs = false;
 
-        // Number of frames between each debug log when enableDebugLogs is active
+        // Number of frames between each debug log when logging is active
         [SerializeField] private int debugLogEveryNFrames = 60;
 
         private Camera referenceCamera;
@@ -83,6 +87,22 @@ namespace EyeGaze.Runtime.Modules
         // Called when tracking is lost or invalid gaze data must be handled.
         public override void HandleTrackingLost(float deltaTime)
         {
+            if (!enableDebugRay)
+            {
+                DisableAll();
+                return;
+            }
+
+            if (showFallbackWhenTrackingLost && referenceCamera != null)
+            {
+                Vector3 fallbackOrigin = referenceCamera.transform.position;
+                Vector3 fallbackDirection = referenceCamera.transform.forward.normalized;
+                Vector3 fallbackEndPoint = fallbackOrigin + fallbackDirection * maxDistance;
+
+                UpdateVisualization(fallbackOrigin, fallbackDirection, fallbackEndPoint);
+                return;
+            }
+
             DisableAll();
         }
 
@@ -134,6 +154,7 @@ namespace EyeGaze.Runtime.Modules
             }
 
             debugLineRenderer.enabled = true;
+            debugLineRenderer.positionCount = 2;
             debugLineRenderer.SetPosition(0, gazeOrigin);
             debugLineRenderer.SetPosition(1, gazeEndPoint);
         }
@@ -150,6 +171,7 @@ namespace EyeGaze.Runtime.Modules
             Vector3 cameraEnd = cameraStart + referenceCamera.transform.forward * maxDistance;
 
             debugCameraLineRenderer.enabled = true;
+            debugCameraLineRenderer.positionCount = 2;
             debugCameraLineRenderer.SetPosition(0, cameraStart);
             debugCameraLineRenderer.SetPosition(1, cameraEnd);
         }
@@ -163,6 +185,7 @@ namespace EyeGaze.Runtime.Modules
             }
 
             debugOffsetLineRenderer.enabled = true;
+            debugOffsetLineRenderer.positionCount = 2;
             debugOffsetLineRenderer.SetPosition(0, referenceCamera.transform.position);
             debugOffsetLineRenderer.SetPosition(1, gazeOrigin);
         }
@@ -176,7 +199,12 @@ namespace EyeGaze.Runtime.Modules
                 return;
             }
 
-            if (!TryIntersectRaySphere(gazeOrigin, gazeDirection.normalized, sphereCenter.position, sphereRadius, out Vector3 hitPoint))
+            if (!TryIntersectRaySphere(
+                gazeOrigin,
+                gazeDirection.normalized,
+                sphereCenter.position,
+                sphereRadius,
+                out Vector3 hitPoint))
             {
                 SetHitMarkerEnabled(false);
                 return;
@@ -203,6 +231,7 @@ namespace EyeGaze.Runtime.Modules
             }
 
             string cameraInfo = "";
+
             if (enableDebugLogs && referenceCamera != null)
             {
                 Vector3 cameraPosition = referenceCamera.transform.position;
@@ -212,20 +241,22 @@ namespace EyeGaze.Runtime.Modules
                     $"GazeOrigin={gazeOrigin} | " +
                     $"CameraPosition={cameraPosition} | " +
                     $"Offset={offset} | " +
-                    $"OffsetMagnitude={offset.magnitude} | " +
+                    $"OffsetMagnitude={offset.magnitude:F4} | " +
                     $"Direction={gazeDirection}";
             }
 
             string mapperInfo = "";
+
             if (enableAOILogging && sphericalMapper != null && sphericalMapper.HasValidDirection)
             {
                 mapperInfo =
-                    $" | UV={sphericalMapper.CurrentUV} | " +
-                    $"Azimuth={sphericalMapper.CurrentAzimuthRad:F3} | " +
-                    $"Elevation={sphericalMapper.CurrentElevationRad:F3}";
+                    $" | UV=({sphericalMapper.CurrentUV.x:F3}, {sphericalMapper.CurrentUV.y:F3})" +
+                    $" | Azimuth={sphericalMapper.CurrentAzimuthRad:F3}" +
+                    $" | Elevation={sphericalMapper.CurrentElevationRad:F3}";
             }
 
             string aoiInfo = "";
+
             if (enableAOILogging && aoiLookup != null)
             {
                 aoiInfo = $" | AOI={GetAOIDebugText()}";
@@ -236,9 +267,12 @@ namespace EyeGaze.Runtime.Modules
 
         private string GetAOIDebugText()
         {
-            // Adapta este método a la API real de tu AOILookup
-            // según los nombres exactos que tengas en tu proyecto.
-            return "Revisar API actual de AOILookup";
+            if (aoiLookup == null)
+            {
+                return "N/A";
+            }
+
+            return aoiLookup.CurrentAOIId.ToString();
         }
 
         private bool TryIntersectRaySphere(
@@ -251,12 +285,11 @@ namespace EyeGaze.Runtime.Modules
             hitPoint = Vector3.zero;
 
             Vector3 oc = rayOrigin - sphereCenterWorld;
-
             float a = Vector3.Dot(rayDirection, rayDirection);
             float b = 2f * Vector3.Dot(oc, rayDirection);
             float c = Vector3.Dot(oc, oc) - (radius * radius);
-
             float discriminant = b * b - 4f * a * c;
+
             if (discriminant < 0f)
             {
                 return false;
