@@ -47,6 +47,9 @@ namespace EyeGaze.Runtime.Core
         private readonly List<IEyeGazeModule> modules = new();
 
         public Camera ReferenceCamera => referenceCamera;
+        public bool HasValidGazePose => hasValidGazePose;
+        public Vector3 LastValidPosition => lastValidPosition;
+        public Quaternion LastValidRotation => lastValidRotation;
         public float MaxDistance => maxDistance;
         public LayerMask HitMask => hitMask;
         public float FallbackFixationDistance => fallbackFixationDistance;

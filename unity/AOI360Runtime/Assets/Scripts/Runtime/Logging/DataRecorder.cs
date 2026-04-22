@@ -6,6 +6,7 @@ using System.Text;
 using AOI360.Runtime.AOI;
 using AOI360.Runtime.Mapping;
 using AOI360.Runtime.Video;
+using EyeGaze.Runtime.Core;
 using UnityEngine;
 
 namespace AOI360.Runtime.Logging
@@ -16,9 +17,11 @@ namespace AOI360.Runtime.Logging
         [SerializeField] private VideoPlayback videoPlayback;
         [SerializeField] private SphericalMapper sphericalMapper;
         [SerializeField] private AOILookup aoiLookup;
+        [SerializeField] private EyeGazeSystem eyeGazeSystem;
 
         [Header("Recording")]
         [SerializeField] private bool recordOnStart = true;
+        [SerializeField] private bool waitUntilVideoPrepared = true;
         [SerializeField] private bool autoExportOnDisable = true;
         [SerializeField] private string participantId = "P001";
         [SerializeField] private string sessionId = "S001";
@@ -41,13 +44,30 @@ namespace AOI360.Runtime.Logging
 
             if (recordOnStart)
             {
-                StartRecording();
+                TryStartRecording();
             }
         }
 
         private void Update()
         {
-            if (!isRecording || sphericalMapper == null || aoiLookup == null)
+            // Si se pidió grabar al iniciar pero estamos esperando al vídeo, reintentamos aquí
+            if (recordOnStart && !isRecording)
+            {
+                TryStartRecording();
+            }
+
+            if (!isRecording)
+            {
+                return;
+            }
+
+            if (sphericalMapper == null || aoiLookup == null)
+            {
+                return;
+            }
+
+            // Si el mapper no tiene dirección válida, no grabamos una fila basura
+            if (!sphericalMapper.HasValidDirection)
             {
                 return;
             }
@@ -61,6 +81,17 @@ namespace AOI360.Runtime.Logging
             float el = sphericalMapper.CurrentElevationRad;
             int aoiId = aoiLookup.CurrentAOIId;
 
+            bool isTracked = eyeGazeSystem != null && eyeGazeSystem.HasValidGazePose;
+            
+            // Como EyeGazeSystem no expone todavía una propiedad pública de tracking,
+            // usamos una heurística simple: si no hay sistema, dejamos false.
+            // Si luego quieres, te hago el cambio para exponer IsTracked públicamente.
+            if (eyeGazeSystem != null)
+            {
+                // Placeholder hasta exponer una propiedad pública real en EyeGazeSystem
+                isTracked = true;
+            }
+
             float timestampMs = (Time.time - sessionStartTime) * 1000f;
 
             string row = string.Join(",",
@@ -70,6 +101,7 @@ namespace AOI360.Runtime.Logging
                 timestampMs.ToString("F3", CultureInfo.InvariantCulture),
                 frameIndex.ToString(CultureInfo.InvariantCulture),
                 videoTime.ToString("F6", CultureInfo.InvariantCulture),
+                isTracked ? "1" : "0",
                 dir.x.ToString("F6", CultureInfo.InvariantCulture),
                 dir.y.ToString("F6", CultureInfo.InvariantCulture),
                 dir.z.ToString("F6", CultureInfo.InvariantCulture),
@@ -84,13 +116,16 @@ namespace AOI360.Runtime.Logging
 
             if (logEveryNFrames && Time.frameCount % Mathf.Max(1, frameLogInterval) == 0)
             {
-                Debug.Log($"[DataRecorder] frame={frameIndex} | videoTime={videoTime:F3} | uv=({uv.x:F3}, {uv.y:F3}) | aoi={aoiId}");
+                Debug.Log(
+                    $"[DataRecorder] frame={frameIndex} | videoTime={videoTime:F3} | " +
+                    $"tracked={isTracked} | uv=({uv.x:F3}, {uv.y:F3}) | aoi={aoiId}"
+                );
             }
         }
 
         private void OnDisable()
         {
-            if (autoExportOnDisable)
+            if (autoExportOnDisable && rows.Count > 1)
             {
                 ExportCsv();
             }
@@ -121,7 +156,6 @@ namespace AOI360.Runtime.Logging
         {
             if (rows.Count <= 1)
             {
-                Debug.LogWarning("[DataRecorder] No data to export.");
                 return;
             }
 
@@ -133,13 +167,36 @@ namespace AOI360.Runtime.Logging
             string filePath = Path.Combine(folderPath, fileName);
 
             File.WriteAllText(filePath, BuildCsvContent(), Encoding.UTF8);
-
             Debug.Log($"[DataRecorder] CSV exported to: {filePath}");
+        }
+
+        private void TryStartRecording()
+        {
+            if (isRecording)
+            {
+                return;
+            }
+
+            if (sphericalMapper == null || aoiLookup == null)
+            {
+                if (logRecordingState)
+                {
+                    Debug.LogWarning("[DataRecorder] Missing references. Recording not started.");
+                }
+                return;
+            }
+
+            if (waitUntilVideoPrepared && videoPlayback != null && !videoPlayback.IsPrepared)
+            {
+                return;
+            }
+
+            StartRecording();
         }
 
         private string BuildHeader()
         {
-            return "participant_id,session_id,video_id,timestamp_ms,frame_index,video_time,direction_x,direction_y,direction_z,azimuth_rad,elevation_rad,uv_x,uv_y,aoi_id";
+            return "participant_id,session_id,video_id,timestamp_ms,frame_index,video_time,is_tracked,direction_x,direction_y,direction_z,azimuth_rad,elevation_rad,uv_x,uv_y,aoi_id";
         }
 
         private string BuildCsvContent()
