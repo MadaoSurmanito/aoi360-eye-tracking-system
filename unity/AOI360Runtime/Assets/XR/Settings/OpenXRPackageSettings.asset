@@ -1390,8 +1390,8 @@ MonoBehaviour:
   m_Name: Android
   m_EditorClassIdentifier: Unity.XR.OpenXR::UnityEngine.XR.OpenXR.OpenXRSettings
   features:
-  - {fileID: 8110613327717545273}
   - {fileID: -7555948622085714029}
+  - {fileID: 8110613327717545273}
   - {fileID: 6102374724191039503}
   - {fileID: 452947410973827688}
   - {fileID: -8408093459980914016}
