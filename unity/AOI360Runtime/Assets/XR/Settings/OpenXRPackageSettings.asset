@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9eca1674b64bae840af3a53d3ae576ec, type: 3}
   m_Name: ViveEyeTracker Standalone
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.EyeTracker.ViveEyeTracker
-  m_enabled: 1
+  m_enabled: 0
   nameUi: VIVE XR Eye Tracker (Beta)
   version: 1.0.0
   featureIdInternal: vive.openxr.feature.eye.tracker
@@ -526,7 +526,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9eca1674b64bae840af3a53d3ae576ec, type: 3}
   m_Name: ViveEyeTracker Android
   m_EditorClassIdentifier: VIVE.OpenXR::VIVE.OpenXR.EyeTracker.ViveEyeTracker
-  m_enabled: 1
+  m_enabled: 0
   nameUi: VIVE XR Eye Tracker (Beta)
   version: 1.0.0
   featureIdInternal: vive.openxr.feature.eye.tracker
@@ -659,7 +659,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b213d3e3c7f3109449eb46a4c8ee42f0, type: 3}
   m_Name: XrPerformanceSettingsFeature Android
   m_EditorClassIdentifier: Unity.XR.OpenXR::UnityEngine.XR.OpenXR.Features.Extensions.PerformanceSettings.XrPerformanceSettingsFeature
-  m_enabled: 1
+  m_enabled: 0
   nameUi: XR Performance Settings
   version: 1.0.0
   featureIdInternal: com.unity.openxr.feature.extension.performance_settings
@@ -793,7 +793,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b213d3e3c7f3109449eb46a4c8ee42f0, type: 3}
   m_Name: XrPerformanceSettingsFeature Standalone
   m_EditorClassIdentifier: Unity.XR.OpenXR::UnityEngine.XR.OpenXR.Features.Extensions.PerformanceSettings.XrPerformanceSettingsFeature
-  m_enabled: 1
+  m_enabled: 0
   nameUi: XR Performance Settings
   version: 1.0.0
   featureIdInternal: com.unity.openxr.feature.extension.performance_settings

@@ -69,7 +69,11 @@ namespace EyeGaze.Runtime.Core
             gazeRotationAction.Enable();
             gazeTrackedAction.Enable();
 
-            Debug.Log("[EyeGazeSystem] Eye gaze actions enabled.");
+            Debug.Log("[EyeGazeSystem] Devices activos:");
+            foreach (var device in InputSystem.devices)
+            {
+                Debug.Log($"- {device.displayName} | {device.layout}");
+            }
         }
 
         // Disable InputActions and clean state
@@ -113,7 +117,7 @@ namespace EyeGaze.Runtime.Core
 
             gazeTrackedAction = new InputAction(
                 name: "EyeGazeTracked",
-                type: InputActionType.Value,
+                type: InputActionType.Button,
                 binding: "<EyeGaze>/isTracked"
             );
         }
@@ -183,7 +187,7 @@ namespace EyeGaze.Runtime.Core
                 lastValidRotation = gazeRotation;
             }
 
-            if (Time.frameCount % 60 == 0)
+            if (Time.frameCount % 30 == 0)
             {
                 Debug.Log(
                     $"[EyeGazeSystem] tracked={isTracked} " +
