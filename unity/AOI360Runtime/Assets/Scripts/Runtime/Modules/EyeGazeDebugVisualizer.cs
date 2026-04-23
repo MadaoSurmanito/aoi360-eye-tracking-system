@@ -306,6 +306,8 @@ namespace EyeGaze.Runtime.Modules
             }
 
             fixationCandidateDuration += deltaTime;
+            // A fixation is treated as a sequence of 250 ms commits so the visualization and
+            // exported runtime data follow the same temporal unit.
             int targetCommitCount = Mathf.FloorToInt(fixationCandidateDuration / fixationCommitIntervalSeconds);
             while (targetCommitCount > fixationCommitCount)
             {
@@ -422,6 +424,8 @@ namespace EyeGaze.Runtime.Modules
                 previousMarker = markers[markers.Length - 1];
                 previousPosition = previousMarker.transform.position;
 
+                // Nearby consecutive commits should reinforce the latest fixation instead of
+                // flooding the trail with visually duplicated markers.
                 if (Vector3.Distance(previousPosition, markerPosition) <= trailMergeDistance)
                 {
                     UpdateTrailMarker(previousMarker, fixationAnchorNormal, clampedScale, markerColor);

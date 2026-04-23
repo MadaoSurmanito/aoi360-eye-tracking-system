@@ -105,6 +105,8 @@ namespace AOI360.Runtime.Core
             overlayMaterial.name = "Runtime_AOIOverlay";
             ConfigureTransparentMaterial(overlayMaterial, null, Color.white);
 
+            // Render the AOI map on a second sphere slightly inside the video sphere so AOIs
+            // can be debugged directly in-headset without modifying the source video asset.
             overlaySphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             overlaySphere.name = "AOIOverlaySphere";
             overlaySphere.transform.SetParent(sphereCenter, false);
@@ -200,6 +202,8 @@ namespace AOI360.Runtime.Core
             Mesh invertedMesh = Instantiate(sourceMesh);
             invertedMesh.name = $"{sourceMesh.name}_Inverted";
 
+            // The observer stands inside the 360 sphere, so the triangles and normals must be
+            // flipped to make the overlay visible from the interior.
             int[] triangles = invertedMesh.triangles;
             for (int i = 0; i < triangles.Length; i += 3)
             {

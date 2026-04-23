@@ -73,6 +73,8 @@ namespace AOI360.Runtime.Logging
                 return;
             }
 
+            // Phase 0 exports one row per committed fixation step instead of one row per frame.
+            // This keeps the dataset aligned with the current experimental prototype and debug view.
             lastExportedFixationSequence = debugVisualizer.LatestCommittedFixationSequence;
 
             long frameIndex = videoPlayback != null ? videoPlayback.CurrentFrame : -1;

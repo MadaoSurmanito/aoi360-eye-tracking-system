@@ -211,6 +211,8 @@ namespace EyeGaze.Runtime.Core
             {
                 SetTrackingState(gazePosition, gazeRotation, EyeTrackingSource.OpenXREyeGaze);
             }
+            // Keep the standard OpenXR path as the primary source, but fall back to
+            // the HTC eye-tracker extension when the generic <EyeGaze> device is unavailable.
             else if (!TryReadViveEyeTrackerPose(out Vector3 vivePosition, out Quaternion viveRotation))
             {
                 hasValidGazePose = false;
@@ -237,6 +239,8 @@ namespace EyeGaze.Runtime.Core
         private void SetTrackingState(Vector3 gazePosition, Quaternion gazeRotation, EyeTrackingSource source)
         {
             hasValidGazePose = true;
+            // OpenXR poses can be delivered relative to the XR rig space, so convert them
+            // into world space once here before any downstream modules consume them.
             lastValidPosition = TransformTrackingPosePosition(gazePosition);
             lastValidRotation = TransformTrackingPoseRotation(gazeRotation);
 
@@ -297,6 +301,8 @@ namespace EyeGaze.Runtime.Core
             Vector3 origin;
             Vector3 direction;
 
+            // When both eyes are valid, approximate a binocular gaze ray by averaging the eye
+            // origins and forward directions. This keeps the rest of the runtime on one ray.
             if (leftValid && rightValid)
             {
                 Vector3 leftOrigin = leftEye.gazePose.position.ToUnityVector();

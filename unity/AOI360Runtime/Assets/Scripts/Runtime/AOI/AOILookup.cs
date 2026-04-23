@@ -213,6 +213,8 @@ namespace AOI360.Runtime.AOI
                 case AoiEncodingMode.MetadataExactColor:
                     EnsureMetadataLoaded();
 
+                    // Production path: resolve AOIs by exact color through metadata so
+                    // offline-generated instance maps can be consumed deterministically.
                     if (colorToDefinition.TryGetValue(ColorToKey(pixel32), out AoiDefinition definition))
                     {
                         return definition.Id;
@@ -349,6 +351,8 @@ namespace AOI360.Runtime.AOI
 
             string metadataJsonText = aoiMetadataJson != null ? aoiMetadataJson.text : null;
 
+            // StreamingAssets is the main handoff point from the future Python pipeline because
+            // it lets the experiment consume exported AOI metadata without hard-wiring editor assets.
             if (string.IsNullOrWhiteSpace(metadataJsonText) && autoLoadMetadataFromStreamingAssets && aoiMapTexture != null)
             {
                 string streamingPath = BuildMetadataStreamingPath();
@@ -441,6 +445,8 @@ namespace AOI360.Runtime.AOI
                 return;
             }
 
+            // AOI maps are data textures, not regular art assets. These warnings are here because
+            // filtering, mipmaps, or compression can silently corrupt exact-color AOI lookup.
             if (!aoiMapTexture.isReadable)
             {
                 Debug.LogWarning(

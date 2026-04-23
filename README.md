@@ -1,6 +1,6 @@
-﻿# AOI360 Eye Tracking System
+# AOI360 Eye Tracking System
 
-System for 360º video eye tracking research with:
+Research system for 360 video attention analysis with:
 - offline AOI generation in Python
 - experimental runtime in Unity
 - post-hoc analytics in Python
@@ -12,17 +12,20 @@ Python pipeline for:
 - frame extraction
 - 360 projection handling
 - AOI detection from prompts
-- segmentation / tracking
+- segmentation and tracking
 - AOI ID map export
 - metadata export
 
 ### 2. Runtime
 Unity runtime for:
 - 360 video playback
-- HTC Vive Focus Vision eye tracking capture
+- OpenXR eye gaze capture
+- HTC VIVE OpenXR eye tracker fallback
 - spherical gaze mapping
-- AOI lookup per frame
-- raw sample logging
+- AOI lookup on equirectangular ID maps
+- AOI overlay rendering on the 360 sphere
+- fixation visualization and trail rendering
+- fixation-based CSV logging
 
 ### 3. Analytics
 Python post-hoc analysis for:
@@ -34,21 +37,83 @@ Python post-hoc analysis for:
 - FB
 - validation comparisons between manual and automatic AOIs
 
-## Phase 0 Goal
-Build a minimal end-to-end prototype with:
-- one 360 video
-- 2-3 manual AOIs
-- Unity skybox playback
-- gaze capture
-- AOI lookup
-- CSV export
-- basic metric calculation offline
+## Phase 0 goal
+
+Build a stable end-to-end prototype with:
+- one 360 video in Unity
+- manual AOI maps rendered as an overlay on the 360 scene
+- real eye tracking through OpenXR and HTC VIVE
+- spherical gaze mapping and AOI lookup
+- fixation commits every 250 ms
+- fixation trail visualization in VR
+- fixation-based CSV export
+- a documented AOI data contract for future Grounding DINO integration
+
+## Current Phase 0 status
+
+The active Unity scene is `Phase0_360Playback_VR`.
+
+Phase 0 currently includes:
+- 360 video playback on the skybox
+- AOI overlay rendering from a runtime-generated transparent sphere
+- AOI lookup with support for:
+  - exact-color metadata maps
+  - grayscale 8-bit ID maps
+  - legacy dominant RGB test maps
+- fixation detection and commit cadence at `250 ms`
+- visible fixation hit marker plus a capped trail of previous fixations
+- CSV export of fixation events, AOI hits, and pupil diameters when HTC eye tracker data is available
+- runtime debug UI showing AOI state, tracking source, and pupil data
+
+## AOI map contract
+
+The runtime now supports a color-driven AOI contract intended for the offline Python pipeline:
+
+- AOI texture: exact-color ID map
+- Metadata file: `StreamingAssets/AOIMaps/<map_name>_metadata.json`
+- Metadata fields:
+  - `id`
+  - `name`
+  - `prompt`
+  - `category`
+  - `parentId`
+  - `color`
+
+Example:
+
+```json
+{
+  "video": "sample360.mp4",
+  "fps": 30,
+  "idMapResolution": [1920, 960],
+  "aois": [
+    {
+      "id": 17,
+      "name": "product_box_left",
+      "prompt": "product box",
+      "category": "product/box",
+      "parentId": 0,
+      "color": "#00FF00"
+    }
+  ]
+}
+```
+
+This lets Unity resolve AOIs by exact pixel color while preserving semantic metadata that can later be produced by Grounding DINO, segmentation, and tracking.
 
 ## Repository layout
 
-- `unity/AOI360Runtime` → Unity project
-- `python/offline` → AOI generation pipeline
-- `python/analytics` → metric analysis
-- `data` → input/output data
-- `docs` → architecture, ADRs, notes
-- `experiments` → phase-specific experiments
+- `unity/AOI360Runtime` -> Unity project
+- `python/offline` -> AOI generation pipeline
+- `python/analytics` -> metric analysis
+- `data` -> input and output data
+- `docs` -> architecture, ADRs, notes, and phase documentation
+- `experiments` -> phase-specific experiments
+
+## Documentation
+
+See the Phase 0 documentation for implementation details:
+- `docs/phase0/README.md`
+- `docs/phase0/runtime-unity.md`
+- `docs/phase0/aoi-data-contract.md`
+- `docs/phase0/validation-checklist.md`
