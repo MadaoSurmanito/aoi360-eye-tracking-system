@@ -1,7 +1,9 @@
 using AOI360.Runtime.AOI;
 using AOI360.Runtime.Mapping;
 using EyeGaze.Runtime.Core;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace EyeGaze.Runtime.Modules
 {
@@ -32,9 +34,13 @@ namespace EyeGaze.Runtime.Modules
         [Header("Fixations")]
         [SerializeField] private float fixationCommitIntervalSeconds = 0.25f;
         [SerializeField] private float fixationAngularThresholdDegrees = 3f;
-        [SerializeField] private float fixationMarkerBaseScale = 0.08f;
-        [SerializeField] private float fixationMarkerScaleGrowth = 0.2f;
-        [SerializeField] private float fixationMarkerMaxScale = 0.22f;
+        [SerializeField] private float fixationMarkerBaseScale = 0.14f;
+        [SerializeField] private float fixationMarkerScaleGrowth = 0.24f;
+        [SerializeField] private float fixationMarkerMaxScale = 0.34f;
+        [SerializeField] private int maxTrailMarkers = 10;
+        [SerializeField] private float trailLineWidth = 0.012f;
+        [SerializeField] private float trailMarkerDepthOffset = 0.02f;
+        [SerializeField] private float trailMergeDistance = 0.18f;
 
         [Header("Logs")]
         [SerializeField] private bool enableDebugLogs = false;
@@ -48,6 +54,10 @@ namespace EyeGaze.Runtime.Modules
         private Texture hitMarkerTexture;
         private Vector3 hitMarkerInitialScale = Vector3.one;
         private float fixationCandidateStartTimestampMs;
+        private Transform trailRoot;
+        private Material runtimeTrailLineMaterial;
+        private readonly Queue<GameObject> committedMarkerObjects = new Queue<GameObject>();
+        private readonly Queue<GameObject> committedLineObjects = new Queue<GameObject>();
 
         private bool fixationCandidateValid;
         private Vector3 fixationCandidateDirection = Vector3.forward;
@@ -74,8 +84,10 @@ namespace EyeGaze.Runtime.Modules
             referenceCamera = system.ReferenceCamera;
             maxDistance = system.MaxDistance;
 
+            NormalizeDebugSettings();
             ConfigureAllLineRenderers();
             CacheHitMarkerRenderer();
+            EnsureTrailRoot();
             ResetFixationState();
             SetHitMarkerEnabled(false);
         }
@@ -114,6 +126,7 @@ namespace EyeGaze.Runtime.Modules
         public override void ResetModuleState()
         {
             ResetFixationState();
+            ClearTrail();
             DisableAll();
         }
 
@@ -123,6 +136,7 @@ namespace EyeGaze.Runtime.Modules
             SetLineRendererEnabled(debugCameraLineRenderer, false);
             SetLineRendererEnabled(debugOffsetLineRenderer, false);
             SetHitMarkerEnabled(false);
+            SetTrailVisible(false);
         }
 
         public void UpdateVisualization(Vector3 gazeOrigin, Vector3 gazeDirection, Vector3 gazeEndPoint, float deltaTime)
@@ -137,6 +151,7 @@ namespace EyeGaze.Runtime.Modules
             DrawReferenceCameraRay();
             DrawCameraToGazeOffset(gazeOrigin);
             UpdateSphereHitMarker(gazeOrigin, gazeDirection, deltaTime);
+            SetTrailVisible(true);
             WritePeriodicDebugLog(gazeOrigin, gazeDirection);
         }
 
@@ -145,6 +160,18 @@ namespace EyeGaze.Runtime.Modules
             EyeGazeUtils.ConfigureLineRenderer(debugLineRenderer, debugRayColor, enableDebugRay);
             EyeGazeUtils.ConfigureLineRenderer(debugCameraLineRenderer, debugCameraRayColor, enableDebugRay);
             EyeGazeUtils.ConfigureLineRenderer(debugOffsetLineRenderer, debugOffsetLineColor, enableDebugRay);
+        }
+
+        private void NormalizeDebugSettings()
+        {
+            fixationAngularThresholdDegrees = Mathf.Max(fixationAngularThresholdDegrees, 3f);
+            fixationMarkerBaseScale = Mathf.Max(fixationMarkerBaseScale, 0.14f);
+            fixationMarkerScaleGrowth = Mathf.Max(fixationMarkerScaleGrowth, 0.24f);
+            fixationMarkerMaxScale = Mathf.Max(fixationMarkerMaxScale, 0.34f);
+            maxTrailMarkers = Mathf.Max(maxTrailMarkers, 10);
+            trailLineWidth = Mathf.Max(trailLineWidth, 0.012f);
+            trailMarkerDepthOffset = Mathf.Max(trailMarkerDepthOffset, 0.02f);
+            trailMergeDistance = Mathf.Max(trailMergeDistance, 0.08f);
         }
 
         private void CacheHitMarkerRenderer()
@@ -292,7 +319,7 @@ namespace EyeGaze.Runtime.Modules
             }
 
             SetHitMarkerEnabled(true);
-            hitMarker.position = fixationAnchorPoint;
+            hitMarker.position = fixationAnchorPoint - (fixationAnchorNormal * trailMarkerDepthOffset);
             hitMarker.rotation = Quaternion.LookRotation(fixationAnchorNormal);
 
             float scaleMultiplier = 1f + (fixationCommitCount - 1) * fixationMarkerScaleGrowth;
@@ -320,6 +347,7 @@ namespace EyeGaze.Runtime.Modules
             LatestCommittedFixationUv = sphericalMapper != null ? sphericalMapper.CurrentUV : Vector2.zero;
             LatestCommittedFixationAoiId = aoiLookup != null ? aoiLookup.CurrentAOIId : 0;
             LatestCommittedFixationConfidence = aoiLookup != null ? aoiLookup.CurrentAOIConfidence : 0f;
+            AppendCommittedTrailMarker();
         }
 
         private Color ResolveFixationColor()
@@ -347,6 +375,232 @@ namespace EyeGaze.Runtime.Modules
             if (hitMarkerVisual != null)
             {
                 hitMarkerVisual.localScale = hitMarkerInitialScale;
+            }
+        }
+
+        private void EnsureTrailRoot()
+        {
+            if (trailRoot != null || hitMarker == null)
+            {
+                return;
+            }
+
+            Transform parent = hitMarker.parent;
+            GameObject root = new GameObject("HitMarkerTrail");
+            trailRoot = root.transform;
+            trailRoot.SetParent(parent, false);
+            trailRoot.localPosition = Vector3.zero;
+            trailRoot.localRotation = Quaternion.identity;
+            trailRoot.localScale = Vector3.one;
+        }
+
+        private void AppendCommittedTrailMarker()
+        {
+            if (hitMarker == null || hitMarkerVisual == null)
+            {
+                return;
+            }
+
+            EnsureTrailRoot();
+
+            Vector3 markerPosition = fixationAnchorPoint - (fixationAnchorNormal * trailMarkerDepthOffset);
+            float scaleMultiplier = 1f + (fixationCommitCount - 1) * fixationMarkerScaleGrowth;
+            float clampedScale = Mathf.Min(fixationMarkerBaseScale * scaleMultiplier, fixationMarkerMaxScale);
+            Color markerColor = ResolveFixationColor();
+
+            GameObject markerObject = CreateTrailMarker(markerPosition, fixationAnchorNormal, clampedScale, markerColor);
+            if (markerObject == null)
+            {
+                return;
+            }
+
+            GameObject previousMarker = null;
+            Vector3 previousPosition = Vector3.zero;
+            if (committedMarkerObjects.Count > 0)
+            {
+                GameObject[] markers = committedMarkerObjects.ToArray();
+                previousMarker = markers[markers.Length - 1];
+                previousPosition = previousMarker.transform.position;
+
+                if (Vector3.Distance(previousPosition, markerPosition) <= trailMergeDistance)
+                {
+                    UpdateTrailMarker(previousMarker, fixationAnchorNormal, clampedScale, markerColor);
+                    Destroy(markerObject);
+                    return;
+                }
+            }
+
+            committedMarkerObjects.Enqueue(markerObject);
+
+            if (previousMarker != null)
+            {
+                GameObject lineObject = CreateTrailLine(previousPosition, markerPosition, markerColor);
+                if (lineObject != null)
+                {
+                    committedLineObjects.Enqueue(lineObject);
+                }
+            }
+
+            while (committedMarkerObjects.Count > maxTrailMarkers)
+            {
+                GameObject oldestMarker = committedMarkerObjects.Dequeue();
+                if (oldestMarker != null)
+                {
+                    Destroy(oldestMarker);
+                }
+
+                if (committedLineObjects.Count > 0)
+                {
+                    GameObject oldestLine = committedLineObjects.Dequeue();
+                    if (oldestLine != null)
+                    {
+                        Destroy(oldestLine);
+                    }
+                }
+            }
+        }
+
+        private GameObject CreateTrailMarker(Vector3 position, Vector3 outwardNormal, float scale, Color color)
+        {
+            if (hitMarkerVisual == null)
+            {
+                return null;
+            }
+
+            GameObject markerRoot = new GameObject($"FixationMarker_{fixationSequence}");
+            Transform markerTransform = markerRoot.transform;
+            markerTransform.SetParent(trailRoot, false);
+            markerTransform.position = position;
+            markerTransform.rotation = Quaternion.LookRotation(outwardNormal);
+
+            GameObject markerVisualObject = Instantiate(hitMarkerVisual.gameObject, markerTransform);
+            markerVisualObject.name = "Visual";
+            markerVisualObject.SetActive(true);
+            markerVisualObject.transform.localPosition = new Vector3(0f, 0f, -0.01f);
+            markerVisualObject.transform.localRotation = Quaternion.identity;
+            markerVisualObject.transform.localScale = new Vector3(scale, scale, scale);
+
+            Renderer markerRenderer = markerVisualObject.GetComponent<Renderer>();
+            if (markerRenderer != null)
+            {
+                Material markerMaterial = new Material(runtimeHitMarkerMaterial != null ? runtimeHitMarkerMaterial : markerRenderer.sharedMaterial);
+                ConfigureTransparentMaterial(markerMaterial, hitMarkerTexture, color);
+                markerRenderer.material = markerMaterial;
+                markerRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                markerRenderer.receiveShadows = false;
+            }
+
+            return markerRoot;
+        }
+
+        private void UpdateTrailMarker(GameObject markerObject, Vector3 outwardNormal, float scale, Color color)
+        {
+            if (markerObject == null)
+            {
+                return;
+            }
+
+            markerObject.transform.rotation = Quaternion.LookRotation(outwardNormal);
+
+            Transform markerVisualTransform = markerObject.transform.childCount > 0
+                ? markerObject.transform.GetChild(0)
+                : null;
+
+            if (markerVisualTransform != null)
+            {
+                markerVisualTransform.localScale = new Vector3(scale, scale, scale);
+                Renderer markerRenderer = markerVisualTransform.GetComponent<Renderer>();
+                if (markerRenderer != null && markerRenderer.material != null)
+                {
+                    ConfigureTransparentMaterial(markerRenderer.material, hitMarkerTexture, color);
+                }
+            }
+        }
+
+        private GameObject CreateTrailLine(Vector3 start, Vector3 end, Color color)
+        {
+            EnsureTrailRoot();
+
+            GameObject lineObject = new GameObject($"FixationLine_{fixationSequence}");
+            Transform lineTransform = lineObject.transform;
+            lineTransform.SetParent(trailRoot, false);
+
+            LineRenderer lineRenderer = lineObject.AddComponent<LineRenderer>();
+            lineRenderer.useWorldSpace = true;
+            lineRenderer.positionCount = 2;
+            lineRenderer.SetPosition(0, start);
+            lineRenderer.SetPosition(1, end);
+            lineRenderer.widthMultiplier = trailLineWidth;
+            lineRenderer.numCornerVertices = 4;
+            lineRenderer.numCapVertices = 4;
+            lineRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            lineRenderer.receiveShadows = false;
+            lineRenderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+            lineRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            lineRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+            if (runtimeTrailLineMaterial == null)
+            {
+                Shader shader = ResolveTransparentShader();
+                if (shader != null)
+                {
+                    runtimeTrailLineMaterial = new Material(shader);
+                    runtimeTrailLineMaterial.name = "Runtime_HitMarkerTrailLine";
+                    ConfigureTransparentMaterial(runtimeTrailLineMaterial, null, color);
+                }
+            }
+
+            if (runtimeTrailLineMaterial != null)
+            {
+                Material lineMaterial = new Material(runtimeTrailLineMaterial);
+                ConfigureTransparentMaterial(lineMaterial, null, color);
+                lineRenderer.material = lineMaterial;
+            }
+
+            Gradient gradient = new Gradient();
+            gradient.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(color, 0f),
+                    new GradientColorKey(color, 1f)
+                },
+                new[]
+                {
+                    new GradientAlphaKey(color.a, 0f),
+                    new GradientAlphaKey(color.a, 1f)
+                }
+            );
+            lineRenderer.colorGradient = gradient;
+
+            return lineObject;
+        }
+
+        private void ClearTrail()
+        {
+            while (committedMarkerObjects.Count > 0)
+            {
+                GameObject marker = committedMarkerObjects.Dequeue();
+                if (marker != null)
+                {
+                    Destroy(marker);
+                }
+            }
+
+            while (committedLineObjects.Count > 0)
+            {
+                GameObject line = committedLineObjects.Dequeue();
+                if (line != null)
+                {
+                    Destroy(line);
+                }
+            }
+        }
+
+        private void SetTrailVisible(bool value)
+        {
+            if (trailRoot != null)
+            {
+                trailRoot.gameObject.SetActive(value);
             }
         }
 
