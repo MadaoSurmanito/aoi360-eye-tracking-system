@@ -50,23 +50,11 @@ namespace AOI360.Runtime.Logging
 
         private void Update()
         {
-            // Si se pidió grabar al iniciar pero estamos esperando al vídeo, reintentamos aquí
-            if (recordOnStart && !isRecording)
-            {
-                TryStartRecording();
-            }
-
-            if (!isRecording)
+            if (!isRecording || sphericalMapper == null || aoiLookup == null || eyeGazeSystem == null)
             {
                 return;
             }
 
-            if (sphericalMapper == null || aoiLookup == null)
-            {
-                return;
-            }
-
-            // Si el mapper no tiene dirección válida, no grabamos una fila basura
             if (!sphericalMapper.HasValidDirection)
             {
                 return;
@@ -75,22 +63,14 @@ namespace AOI360.Runtime.Logging
             long frameIndex = videoPlayback != null ? videoPlayback.CurrentFrame : -1;
             double videoTime = videoPlayback != null ? videoPlayback.CurrentTime : 0d;
 
+            Vector3 origin = eyeGazeSystem.LastValidPosition;
+            bool isTracked = eyeGazeSystem.HasValidGazePose;
+
             Vector3 dir = sphericalMapper.CurrentDirection;
             Vector2 uv = sphericalMapper.CurrentUV;
             float az = sphericalMapper.CurrentAzimuthRad;
             float el = sphericalMapper.CurrentElevationRad;
             int aoiId = aoiLookup.CurrentAOIId;
-
-            bool isTracked = eyeGazeSystem != null && eyeGazeSystem.HasValidGazePose;
-            
-            // Como EyeGazeSystem no expone todavía una propiedad pública de tracking,
-            // usamos una heurística simple: si no hay sistema, dejamos false.
-            // Si luego quieres, te hago el cambio para exponer IsTracked públicamente.
-            if (eyeGazeSystem != null)
-            {
-                // Placeholder hasta exponer una propiedad pública real en EyeGazeSystem
-                isTracked = true;
-            }
 
             float timestampMs = (Time.time - sessionStartTime) * 1000f;
 
@@ -102,6 +82,9 @@ namespace AOI360.Runtime.Logging
                 frameIndex.ToString(CultureInfo.InvariantCulture),
                 videoTime.ToString("F6", CultureInfo.InvariantCulture),
                 isTracked ? "1" : "0",
+                origin.x.ToString("F6", CultureInfo.InvariantCulture),
+                origin.y.ToString("F6", CultureInfo.InvariantCulture),
+                origin.z.ToString("F6", CultureInfo.InvariantCulture),
                 dir.x.ToString("F6", CultureInfo.InvariantCulture),
                 dir.y.ToString("F6", CultureInfo.InvariantCulture),
                 dir.z.ToString("F6", CultureInfo.InvariantCulture),
@@ -118,7 +101,8 @@ namespace AOI360.Runtime.Logging
             {
                 Debug.Log(
                     $"[DataRecorder] frame={frameIndex} | videoTime={videoTime:F3} | " +
-                    $"tracked={isTracked} | uv=({uv.x:F3}, {uv.y:F3}) | aoi={aoiId}"
+                    $"tracked={isTracked} | origin=({origin.x:F3}, {origin.y:F3}, {origin.z:F3}) | " +
+                    $"uv=({uv.x:F3}, {uv.y:F3}) | aoi={aoiId}"
                 );
             }
         }

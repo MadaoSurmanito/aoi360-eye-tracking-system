@@ -1421,10 +1421,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7d5a2312c575da44588151511e787431, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.Logging.DataRecorder
-  videoPlayback: {fileID: 0}
-  sphericalMapper: {fileID: 0}
-  aoiLookup: {fileID: 0}
+  videoPlayback: {fileID: 730990565}
+  sphericalMapper: {fileID: 1536635697}
+  aoiLookup: {fileID: 233558556}
+  eyeGazeSystem: {fileID: 1560640329}
   recordOnStart: 1
+  waitUntilVideoPrepared: 1
   autoExportOnDisable: 1
   participantId: P001
   sessionId: S001
