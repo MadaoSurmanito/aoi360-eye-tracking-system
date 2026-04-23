@@ -1,15 +1,70 @@
-using UnityEngine;
-using AOI360.Runtime.Mapping;
+using System;
 using System.Collections.Generic;
+using System.IO;
+using AOI360.Runtime.Mapping;
+using UnityEngine;
 
 namespace AOI360.Runtime.AOI
 {
     public class AOILookup : MonoBehaviour
     {
+        private enum AoiEncodingMode
+        {
+            MetadataExactColor = 0,
+            Grayscale8Bit = 1,
+            LegacyDominantRgb = 2
+        }
+
+        [Serializable]
+        private class AoiMetadataDocument
+        {
+            public string video;
+            public int fps;
+            public int[] idMapResolution;
+            public AoiMetadataEntry[] aois;
+        }
+
+        [Serializable]
+        private class AoiMetadataEntry
+        {
+            public int id;
+            public string name;
+            public string prompt;
+            public string category;
+            public int parentId;
+            public string color;
+        }
+
+        public readonly struct AoiDefinition
+        {
+            public AoiDefinition(int id, string name, string category, Color32 color)
+            {
+                Id = id;
+                Name = name;
+                Category = category;
+                Color = color;
+            }
+
+            public int Id { get; }
+            public string Name { get; }
+            public string Category { get; }
+            public Color32 Color { get; }
+        }
+
         [Header("References")]
         [SerializeField] private SphericalMapper sphericalMapper;
         [SerializeField] private Texture2D aoiMapTexture;
-        [SerializeField] private bool useGrayscaleIdEncoding = true;
+        [SerializeField] private TextAsset aoiMetadataJson;
+
+        [Header("Encoding")]
+        [SerializeField] private AoiEncodingMode encodingMode = AoiEncodingMode.MetadataExactColor;
+        [SerializeField] private bool autoLoadMetadataFromStreamingAssets = true;
+        [SerializeField] private string metadataStreamingFolder = "AOIMaps";
+        [SerializeField] private bool autoLoadMetadataFromResources = true;
+        [SerializeField] private string metadataResourcesFolder = "AOIMaps";
+        [SerializeField] private float grayscaleTolerance = 0.01f;
+
+        [Header("Confidence")]
         [SerializeField] private float neighborhoodRadiusDegrees = 1.5f;
         [SerializeField] private int neighborhoodSamples = 8;
 
@@ -18,16 +73,43 @@ namespace AOI360.Runtime.AOI
         [SerializeField] private bool logContinuous = false;
         [SerializeField] private int logEveryNFrames = 30;
 
-        public int CurrentAOIId { get; private set; } = 0;
-        public float CurrentAOIConfidence { get; private set; } = 0f;
+        public int CurrentAOIId { get; private set; }
+        public float CurrentAOIConfidence { get; private set; }
         public Color CurrentAOIColor { get; private set; } = Color.clear;
         public Vector2 CurrentUV { get; private set; }
+        public string CurrentAOIName { get; private set; } = "";
+        public string CurrentAOICategory { get; private set; } = "";
         public IReadOnlyList<int> NeighborAOIIds => neighborAOIIds;
         public Texture2D AOIMapTexture => aoiMapTexture;
+        public bool HasMetadataDefinitions => colorToDefinition.Count > 0;
+        public string ActiveEncodingLabel => encodingMode.ToString();
+        public string LoadedMetadataSource { get; private set; } = "";
 
         private int lastLoggedAOIId = -1;
+        private bool hasWarnedTextureNotReadable;
+        private bool hasWarnedMetadataMissing;
+        private bool metadataLoaded;
         private readonly List<int> neighborAOIIds = new();
         private readonly HashSet<int> neighborAOISet = new();
+        private readonly Dictionary<uint, AoiDefinition> colorToDefinition = new();
+        private readonly Dictionary<int, AoiDefinition> idToDefinition = new();
+
+        private void Awake()
+        {
+            NormalizeConfigurationDefaults();
+            EnsureMetadataLoaded();
+            ValidateTextureSettings();
+        }
+
+        private void OnValidate()
+        {
+            NormalizeConfigurationDefaults();
+            metadataLoaded = false;
+            colorToDefinition.Clear();
+            idToDefinition.Clear();
+            hasWarnedMetadataMissing = false;
+            LoadedMetadataSource = "";
+        }
 
         private void Update()
         {
@@ -35,6 +117,13 @@ namespace AOI360.Runtime.AOI
             {
                 return;
             }
+
+            if (!EnsureTextureReadable())
+            {
+                return;
+            }
+
+            EnsureMetadataLoaded();
 
             Vector2 uv = sphericalMapper.CurrentUV;
             CurrentUV = uv;
@@ -49,11 +138,26 @@ namespace AOI360.Runtime.AOI
             CurrentAOIId = aoiId;
             CurrentAOIConfidence = ComputeNeighborhoodConfidence(uv, aoiId);
 
+            if (TryGetDefinition(aoiId, out AoiDefinition definition))
+            {
+                CurrentAOIName = definition.Name ?? "";
+                CurrentAOICategory = definition.Category ?? "";
+            }
+            else
+            {
+                CurrentAOIName = "";
+                CurrentAOICategory = "";
+            }
+
             if (logAOIChanges && CurrentAOIId != lastLoggedAOIId)
             {
+                string metadataSuffix = string.IsNullOrWhiteSpace(CurrentAOIName)
+                    ? ""
+                    : $" | name={CurrentAOIName} | category={CurrentAOICategory}";
+
                 Debug.Log(
-                    $"[AOILookup] AOI cambiado -> id={CurrentAOIId} | conf={CurrentAOIConfidence:F2} " +
-                    $"| uv=({uv.x:F3}, {uv.y:F3}) | px=({pixelX}, {pixelY})"
+                    $"[AOILookup] AOI changed -> id={CurrentAOIId} | conf={CurrentAOIConfidence:F2} " +
+                    $"| uv=({uv.x:F3}, {uv.y:F3}) | px=({pixelX}, {pixelY}){metadataSuffix}"
                 );
                 lastLoggedAOIId = CurrentAOIId;
             }
@@ -62,25 +166,87 @@ namespace AOI360.Runtime.AOI
             {
                 Debug.Log(
                     $"[AOILookup] id={CurrentAOIId} | conf={CurrentAOIConfidence:F2} " +
-                    $"| uv=({uv.x:F3}, {uv.y:F3}) | px=({pixelX}, {pixelY})"
+                    $"| uv=({uv.x:F3}, {uv.y:F3}) | px=({pixelX}, {pixelY}) | mode={encodingMode}"
                 );
             }
         }
 
-        private int ResolveAOIIdFromColor(Color pixel)
+        public bool TryResolveAOIFromPixel(Color pixel, out int aoiId, out Color overlayColor)
         {
-            bool looksGrayscale = Mathf.Abs(pixel.r - pixel.g) < 0.01f &&
-                                  Mathf.Abs(pixel.g - pixel.b) < 0.01f;
+            aoiId = ResolveAOIIdFromColor(pixel);
+            overlayColor = ResolveOverlayColor(pixel, aoiId);
+            return aoiId > 0;
+        }
 
-            if (useGrayscaleIdEncoding && looksGrayscale)
+        public Color ResolveOverlayColor(Color pixel, int aoiId)
+        {
+            if (aoiId <= 0)
             {
-                int grayscaleId = Mathf.Clamp(Mathf.RoundToInt(pixel.r * 255f), 0, 255);
-                if (grayscaleId > 0)
-                {
-                    return grayscaleId;
-                }
+                return new Color(0f, 0f, 0f, 0f);
             }
 
+            if (TryGetDefinition(aoiId, out AoiDefinition definition))
+            {
+                return definition.Color;
+            }
+
+            if (LooksGrayscale(pixel))
+            {
+                float hue = Mathf.Repeat(aoiId * 0.173f, 1f);
+                return Color.HSVToRGB(hue, 0.8f, 1f);
+            }
+
+            return new Color(pixel.r, pixel.g, pixel.b, 1f);
+        }
+
+        public bool TryGetDefinition(int aoiId, out AoiDefinition definition)
+        {
+            return idToDefinition.TryGetValue(aoiId, out definition);
+        }
+
+        private int ResolveAOIIdFromColor(Color pixel)
+        {
+            Color32 pixel32 = pixel;
+
+            switch (encodingMode)
+            {
+                case AoiEncodingMode.MetadataExactColor:
+                    EnsureMetadataLoaded();
+
+                    if (colorToDefinition.TryGetValue(ColorToKey(pixel32), out AoiDefinition definition))
+                    {
+                        return definition.Id;
+                    }
+
+                    if (!hasWarnedMetadataMissing && colorToDefinition.Count == 0)
+                    {
+                        Debug.LogWarning(
+                            "[AOILookup] MetadataExactColor is active but no AOI metadata is loaded. " +
+                            "The lookup will return 0 until a valid JSON is available."
+                        );
+                        hasWarnedMetadataMissing = true;
+                    }
+
+                    return IsBlack(pixel32) ? 0 : 0;
+
+                case AoiEncodingMode.Grayscale8Bit:
+                    if (LooksGrayscale(pixel))
+                    {
+                        return Mathf.Clamp(Mathf.RoundToInt(pixel.r * 255f), 0, 255);
+                    }
+
+                    return 0;
+
+                case AoiEncodingMode.LegacyDominantRgb:
+                    return ResolveLegacyDominantRgb(pixel);
+
+                default:
+                    return 0;
+            }
+        }
+
+        private int ResolveLegacyDominantRgb(Color pixel)
+        {
             float r = pixel.r;
             float g = pixel.g;
             float b = pixel.b;
@@ -89,11 +255,13 @@ namespace AOI360.Runtime.AOI
             {
                 return 0;
             }
-            else if (r > 0.9f && g < 0.1f && b < 0.1f)
+
+            if (r > 0.9f && g < 0.1f && b < 0.1f)
             {
                 return 1;
             }
-            else if (r < 0.1f && g > 0.9f && b < 0.1f)
+
+            if (r < 0.1f && g > 0.9f && b < 0.1f)
             {
                 return 2;
             }
@@ -160,6 +328,204 @@ namespace AOI360.Runtime.AOI
             }
 
             return matches / (float)total;
+        }
+
+        private void EnsureMetadataLoaded()
+        {
+            if (metadataLoaded)
+            {
+                return;
+            }
+
+            metadataLoaded = true;
+            colorToDefinition.Clear();
+            idToDefinition.Clear();
+            LoadedMetadataSource = "";
+
+            if (encodingMode != AoiEncodingMode.MetadataExactColor)
+            {
+                return;
+            }
+
+            string metadataJsonText = aoiMetadataJson != null ? aoiMetadataJson.text : null;
+
+            if (string.IsNullOrWhiteSpace(metadataJsonText) && autoLoadMetadataFromStreamingAssets && aoiMapTexture != null)
+            {
+                string streamingPath = BuildMetadataStreamingPath();
+                if (!string.IsNullOrWhiteSpace(streamingPath) && File.Exists(streamingPath))
+                {
+                    metadataJsonText = File.ReadAllText(streamingPath);
+                    LoadedMetadataSource = streamingPath;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(metadataJsonText) && aoiMetadataJson == null && autoLoadMetadataFromResources && aoiMapTexture != null)
+            {
+                string resourcePath = BuildMetadataResourcePath();
+                if (!string.IsNullOrEmpty(resourcePath))
+                {
+                    aoiMetadataJson = Resources.Load<TextAsset>(resourcePath);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(metadataJsonText) && aoiMetadataJson != null)
+            {
+                metadataJsonText = aoiMetadataJson.text;
+                LoadedMetadataSource = $"TextAsset:{aoiMetadataJson.name}";
+            }
+
+            if (string.IsNullOrWhiteSpace(metadataJsonText))
+            {
+                return;
+            }
+
+            AoiMetadataDocument document;
+            try
+            {
+                document = JsonUtility.FromJson<AoiMetadataDocument>(metadataJsonText);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[AOILookup] Could not parse AOI metadata JSON: {exception.Message}");
+                return;
+            }
+
+            if (document == null || document.aois == null)
+            {
+                return;
+            }
+
+            foreach (AoiMetadataEntry entry in document.aois)
+            {
+                if (entry == null || entry.id <= 0 || string.IsNullOrWhiteSpace(entry.color))
+                {
+                    continue;
+                }
+
+                if (!ColorUtility.TryParseHtmlString(entry.color, out Color parsedColor))
+                {
+                    Debug.LogWarning($"[AOILookup] Invalid metadata color for AOI id={entry.id}: {entry.color}");
+                    continue;
+                }
+
+                Color32 color32 = (Color32)parsedColor;
+                AoiDefinition definition = new(entry.id, entry.name, entry.category, color32);
+                colorToDefinition[ColorToKey(color32)] = definition;
+                idToDefinition[definition.Id] = definition;
+            }
+        }
+
+        private bool EnsureTextureReadable()
+        {
+            if (aoiMapTexture != null && aoiMapTexture.isReadable)
+            {
+                return true;
+            }
+
+            if (!hasWarnedTextureNotReadable && aoiMapTexture != null)
+            {
+                Debug.LogWarning(
+                    $"[AOILookup] AOI texture '{aoiMapTexture.name}' is not readable from script. " +
+                    "Enable Read/Write, disable Mip Maps, use Filter Mode Point, and disable compression for AOI data maps."
+                );
+                hasWarnedTextureNotReadable = true;
+            }
+
+            return false;
+        }
+
+        private void ValidateTextureSettings()
+        {
+            if (aoiMapTexture == null)
+            {
+                return;
+            }
+
+            if (!aoiMapTexture.isReadable)
+            {
+                Debug.LogWarning(
+                    $"[AOILookup] '{aoiMapTexture.name}' is not readable. " +
+                    "AOI lookup and overlay will not work until the import settings are fixed."
+                );
+            }
+
+            if (aoiMapTexture.filterMode != FilterMode.Point)
+            {
+                Debug.LogWarning(
+                    $"[AOILookup] '{aoiMapTexture.name}' uses FilterMode {aoiMapTexture.filterMode}. " +
+                    "Point is recommended for AOI data maps so IDs stay exact."
+                );
+            }
+
+            if (aoiMapTexture.mipmapCount > 1)
+            {
+                Debug.LogWarning(
+                    $"[AOILookup] '{aoiMapTexture.name}' has mipmaps enabled. " +
+                    "Disable them for AOI data maps to avoid ID bleeding."
+                );
+            }
+        }
+
+        private void NormalizeConfigurationDefaults()
+        {
+            if (string.IsNullOrWhiteSpace(metadataStreamingFolder))
+            {
+                metadataStreamingFolder = "AOIMaps";
+            }
+
+            if (string.IsNullOrWhiteSpace(metadataResourcesFolder))
+            {
+                metadataResourcesFolder = "AOIMaps";
+            }
+
+            if (aoiMetadataJson == null && !autoLoadMetadataFromStreamingAssets && !autoLoadMetadataFromResources)
+            {
+                autoLoadMetadataFromStreamingAssets = true;
+            }
+
+            grayscaleTolerance = Mathf.Clamp(grayscaleTolerance, 0.0001f, 0.05f);
+            neighborhoodSamples = Mathf.Max(0, neighborhoodSamples);
+            neighborhoodRadiusDegrees = Mathf.Max(0.1f, neighborhoodRadiusDegrees);
+        }
+
+        private string BuildMetadataResourcePath()
+        {
+            if (string.IsNullOrWhiteSpace(metadataResourcesFolder) || aoiMapTexture == null)
+            {
+                return null;
+            }
+
+            return $"{metadataResourcesFolder.TrimEnd('/')}/{aoiMapTexture.name}_metadata";
+        }
+
+        private string BuildMetadataStreamingPath()
+        {
+            if (string.IsNullOrWhiteSpace(metadataStreamingFolder) || aoiMapTexture == null)
+            {
+                return null;
+            }
+
+            return Path.Combine(
+                Application.streamingAssetsPath,
+                metadataStreamingFolder,
+                $"{aoiMapTexture.name}_metadata.json"
+            );
+        }
+
+        private bool LooksGrayscale(Color pixel)
+        {
+            return Mathf.Abs(pixel.r - pixel.g) < grayscaleTolerance &&
+                   Mathf.Abs(pixel.g - pixel.b) < grayscaleTolerance;
+        }
+
+        private bool IsBlack(Color32 pixel)
+        {
+            return pixel.r == 0 && pixel.g == 0 && pixel.b == 0;
+        }
+
+        private uint ColorToKey(Color32 color)
+        {
+            return (uint)(color.r | (color.g << 8) | (color.b << 16) | (color.a << 24));
         }
     }
 }

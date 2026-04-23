@@ -1,0 +1,23 @@
+{
+  "video": "sample360.mp4",
+  "fps": 30,
+  "idMapResolution": [1920, 960],
+  "aois": [
+    {
+      "id": 1,
+      "name": "green_target",
+      "prompt": "green target",
+      "category": "debug/instance",
+      "parentId": 0,
+      "color": "#00FF00"
+    },
+    {
+      "id": 2,
+      "name": "red_target",
+      "prompt": "red target",
+      "category": "debug/instance",
+      "parentId": 0,
+      "color": "#FF0000"
+    }
+  ]
+}

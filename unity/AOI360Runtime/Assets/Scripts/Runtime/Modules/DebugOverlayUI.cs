@@ -37,13 +37,18 @@ namespace AOI360.Runtime.Modules
             int aoiId = aoiLookup.CurrentAOIId;
             float confidence = aoiLookup.CurrentAOIConfidence;
             int fixationSteps = debugVisualizer != null ? debugVisualizer.ActiveFixationCommitCount : 0;
+            string aoiName = string.IsNullOrWhiteSpace(aoiLookup.CurrentAOIName) ? "-" : aoiLookup.CurrentAOIName;
+            string aoiCategory = string.IsNullOrWhiteSpace(aoiLookup.CurrentAOICategory) ? "-" : aoiLookup.CurrentAOICategory;
 
             debugText.text =
                 $"Frame: {frameIndex}\n" +
                 $"Video Time: {videoTime:F3}\n" +
                 $"UV: ({uv.x:F3}, {uv.y:F3})\n" +
                 $"AOI ID: {aoiId}\n" +
+                $"AOI Name: {aoiName}\n" +
+                $"AOI Category: {aoiCategory}\n" +
                 $"AOI Conf: {confidence:F2}\n" +
+                $"AOI Mode: {aoiLookup.ActiveEncodingLabel}\n" +
                 $"Fixation Steps: {fixationSteps}";
         }
     }

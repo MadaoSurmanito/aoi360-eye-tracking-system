@@ -148,6 +148,15 @@ namespace AOI360.Runtime.Core
                 return;
             }
 
+            if (!sourceTexture.isReadable)
+            {
+                Debug.LogWarning(
+                    $"[Phase0Bootstrap] La textura AOI '{sourceTexture.name}' no es legible. " +
+                    "No se puede construir el overlay hasta corregir el import."
+                );
+                return;
+            }
+
             int highlightedAoiId = aoiLookup.CurrentAOIId;
             if (!forceRefresh && highlightedAoiId == lastHighlightedAoiId)
             {
@@ -170,15 +179,12 @@ namespace AOI360.Runtime.Core
             for (int i = 0; i < sourcePixels.Length; i++)
             {
                 Color sourcePixel = sourcePixels[i];
-                int aoiId = ResolveAoiIdFromPixel(sourcePixel);
-
-                if (aoiId <= 0)
+                if (!aoiLookup.TryResolveAOIFromPixel(sourcePixel, out int aoiId, out Color overlayColor))
                 {
                     overlayPixels[i] = new Color(0f, 0f, 0f, 0f);
                     continue;
                 }
 
-                Color overlayColor = ResolveOverlayColor(sourcePixel, aoiId);
                 float alpha = aoiId == highlightedAoiId ? focusedOverlayOpacity : overlayOpacity;
                 overlayColor.a = alpha;
                 overlayPixels[i] = overlayColor;
@@ -187,43 +193,6 @@ namespace AOI360.Runtime.Core
             overlayTexture.SetPixels(overlayPixels);
             overlayTexture.Apply(false, false);
             ConfigureTransparentMaterial(overlayMaterial, overlayTexture, Color.white);
-        }
-
-        private int ResolveAoiIdFromPixel(Color pixel)
-        {
-            int grayscaleId = Mathf.Clamp(Mathf.RoundToInt(pixel.r * 255f), 0, 255);
-            if (grayscaleId > 0 && Mathf.Abs(pixel.r - pixel.g) < 0.01f && Mathf.Abs(pixel.g - pixel.b) < 0.01f)
-            {
-                return grayscaleId;
-            }
-
-            if (pixel.r < 0.1f && pixel.g < 0.1f && pixel.b < 0.1f)
-            {
-                return 0;
-            }
-
-            if (pixel.r > pixel.g && pixel.r > pixel.b)
-            {
-                return 1;
-            }
-
-            if (pixel.g > pixel.r && pixel.g > pixel.b)
-            {
-                return 2;
-            }
-
-            return grayscaleId;
-        }
-
-        private Color ResolveOverlayColor(Color sourcePixel, int aoiId)
-        {
-            if (Mathf.Abs(sourcePixel.r - sourcePixel.g) < 0.01f && Mathf.Abs(sourcePixel.g - sourcePixel.b) < 0.01f)
-            {
-                float hue = Mathf.Repeat(aoiId * 0.173f, 1f);
-                return Color.HSVToRGB(hue, 0.8f, 1f);
-            }
-
-            return new Color(sourcePixel.r, sourcePixel.g, sourcePixel.b, 1f);
         }
 
         private Mesh CreateInvertedSphereMesh(Mesh sourceMesh)
