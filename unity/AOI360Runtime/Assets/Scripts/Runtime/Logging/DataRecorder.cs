@@ -84,6 +84,8 @@ namespace AOI360.Runtime.Logging
             float el = sphericalMapper.CurrentElevationRad;
             int aoiId = debugVisualizer.LatestCommittedFixationAoiId;
             float aoiConfidence = debugVisualizer.LatestCommittedFixationConfidence;
+            float leftPupil = eyeGazeSystem.LastLeftPupilDiameter;
+            float rightPupil = eyeGazeSystem.LastRightPupilDiameter;
             float timestampMs = debugVisualizer.LatestCommittedFixationTimestampMs - (sessionStartTime * 1000f);
             timestampMs = Mathf.Round(timestampMs / 250f) * 250f;
 
@@ -105,8 +107,8 @@ namespace AOI360.Runtime.Logging
                 uv.y.ToString("F6", CultureInfo.InvariantCulture),
                 aoiId.ToString(CultureInfo.InvariantCulture),
                 aoiConfidence.ToString("F4", CultureInfo.InvariantCulture),
-                "",
-                "",
+                FormatOptionalFloat(leftPupil),
+                FormatOptionalFloat(rightPupil),
                 isTracked ? "1" : "0"
             );
 
@@ -229,6 +231,13 @@ namespace AOI360.Runtime.Logging
             }
 
             return value;
+        }
+
+        private string FormatOptionalFloat(float value)
+        {
+            return value >= 0f
+                ? value.ToString("F4", CultureInfo.InvariantCulture)
+                : "";
         }
     }
 }

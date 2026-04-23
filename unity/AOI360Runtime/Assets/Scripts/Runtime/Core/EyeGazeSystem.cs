@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using VIVE.OpenXR;
+using VIVE.OpenXR.EyeTracker;
 
 namespace EyeGaze.Runtime.Core
 {
@@ -8,6 +10,13 @@ namespace EyeGaze.Runtime.Core
     // and delegates the result to the optional helper modules.
     public class EyeGazeSystem : MonoBehaviour
     {
+        private enum EyeTrackingSource
+        {
+            None = 0,
+            OpenXREyeGaze = 1,
+            ViveEyeTracker = 2
+        }
+
         [Header("Raycast")]
         // Maximum distance for the gaze raycast
         [SerializeField] private float maxDistance = 10f;
@@ -28,6 +37,11 @@ namespace EyeGaze.Runtime.Core
         [Header("References")]
         // Camera used as reference (usually HMD / Main Camera)
         [SerializeField] private Camera referenceCamera;
+        [SerializeField] private Transform trackingSpace;
+
+        [Header("Input Source")]
+        [SerializeField] private bool allowViveEyeTrackerFallback = true;
+        [SerializeField] private bool logTrackingSourceChanges = true;
 
         [Header("Optional Modules")]
         // List of optional eye gaze modules to be driven by the system
@@ -42,6 +56,9 @@ namespace EyeGaze.Runtime.Core
         private Vector3 lastValidPosition;
         private Quaternion lastValidRotation = Quaternion.identity;
         private bool hasValidGazePose;
+        private EyeTrackingSource currentTrackingSource;
+        private float lastLeftPupilDiameter = -1f;
+        private float lastRightPupilDiameter = -1f;
 
         // Runtime list of valid modules implementing the common module interface
         private readonly List<IEyeGazeModule> modules = new();
@@ -50,6 +67,9 @@ namespace EyeGaze.Runtime.Core
         public bool HasValidGazePose => hasValidGazePose;
         public Vector3 LastValidPosition => lastValidPosition;
         public Quaternion LastValidRotation => lastValidRotation;
+        public string CurrentTrackingSource => currentTrackingSource.ToString();
+        public float LastLeftPupilDiameter => lastLeftPupilDiameter;
+        public float LastRightPupilDiameter => lastRightPupilDiameter;
         public float MaxDistance => maxDistance;
         public LayerMask HitMask => hitMask;
         public float FallbackFixationDistance => fallbackFixationDistance;
@@ -121,7 +141,7 @@ namespace EyeGaze.Runtime.Core
             gazeTrackedAction = new InputAction(
                 name: "EyeGazeTracked",
                 type: InputActionType.Button,
-                binding: "<EyeGaze>/isTracked"
+                binding: "<EyeGaze>/pose/isTracked"
             );
         }
 
@@ -131,6 +151,11 @@ namespace EyeGaze.Runtime.Core
             if (referenceCamera == null)
             {
                 referenceCamera = Camera.main;
+            }
+
+            if (trackingSpace == null && referenceCamera != null && referenceCamera.transform.parent != null)
+            {
+                trackingSpace = referenceCamera.transform.parent;
             }
         }
 
@@ -182,20 +207,150 @@ namespace EyeGaze.Runtime.Core
             float trackedValue = gazeTrackedAction.ReadValue<float>();
 
             bool isTracked = trackedValue > 0.5f;
-            hasValidGazePose = isTracked;
-
-            if (hasValidGazePose)
+            if (isTracked)
             {
-                lastValidPosition = gazePosition;
-                lastValidRotation = gazeRotation;
+                SetTrackingState(gazePosition, gazeRotation, EyeTrackingSource.OpenXREyeGaze);
             }
+            else if (!TryReadViveEyeTrackerPose(out Vector3 vivePosition, out Quaternion viveRotation))
+            {
+                hasValidGazePose = false;
+                currentTrackingSource = EyeTrackingSource.None;
+                lastLeftPupilDiameter = -1f;
+                lastRightPupilDiameter = -1f;
+            }
+            else
+            {
+                SetTrackingState(vivePosition, viveRotation, EyeTrackingSource.ViveEyeTracker);
+            }
+
+            hasValidGazePose = currentTrackingSource != EyeTrackingSource.None;
 
             if (Time.frameCount % 30 == 0)
             {
                 Debug.Log(
-                    $"[EyeGazeSystem] tracked={isTracked} " +
-                    $"pos={gazePosition} rot={gazeRotation.eulerAngles}"
+                    $"[EyeGazeSystem] tracked={hasValidGazePose} | source={currentTrackingSource} " +
+                    $"pos={lastValidPosition} rot={lastValidRotation.eulerAngles}"
                 );
+            }
+        }
+
+        private void SetTrackingState(Vector3 gazePosition, Quaternion gazeRotation, EyeTrackingSource source)
+        {
+            hasValidGazePose = true;
+            lastValidPosition = TransformTrackingPosePosition(gazePosition);
+            lastValidRotation = TransformTrackingPoseRotation(gazeRotation);
+
+            if (logTrackingSourceChanges && currentTrackingSource != source)
+            {
+                Debug.Log($"[EyeGazeSystem] Tracking source -> {source}", this);
+            }
+
+            currentTrackingSource = source;
+        }
+
+        private Vector3 TransformTrackingPosePosition(Vector3 trackingPosition)
+        {
+            if (trackingSpace != null)
+            {
+                return trackingSpace.TransformPoint(trackingPosition);
+            }
+
+            return trackingPosition;
+        }
+
+        private Quaternion TransformTrackingPoseRotation(Quaternion trackingRotation)
+        {
+            if (trackingSpace != null)
+            {
+                return trackingSpace.rotation * trackingRotation;
+            }
+
+            return trackingRotation;
+        }
+
+        private bool TryReadViveEyeTrackerPose(out Vector3 gazePosition, out Quaternion gazeRotation)
+        {
+            gazePosition = Vector3.zero;
+            gazeRotation = Quaternion.identity;
+
+            if (!allowViveEyeTrackerFallback)
+            {
+                return false;
+            }
+
+            if (!XR_HTC_eye_tracker.Interop.GetEyeGazeData(out XrSingleEyeGazeDataHTC[] eyeGazes) || eyeGazes == null || eyeGazes.Length < 2)
+            {
+                return false;
+            }
+
+            XrSingleEyeGazeDataHTC leftEye = eyeGazes[(int)XrEyePositionHTC.XR_EYE_POSITION_LEFT_HTC];
+            XrSingleEyeGazeDataHTC rightEye = eyeGazes[(int)XrEyePositionHTC.XR_EYE_POSITION_RIGHT_HTC];
+
+            bool leftValid = leftEye.isValid;
+            bool rightValid = rightEye.isValid;
+
+            if (!leftValid && !rightValid)
+            {
+                return false;
+            }
+
+            Vector3 origin;
+            Vector3 direction;
+
+            if (leftValid && rightValid)
+            {
+                Vector3 leftOrigin = leftEye.gazePose.position.ToUnityVector();
+                Vector3 rightOrigin = rightEye.gazePose.position.ToUnityVector();
+                Vector3 leftDirection = leftEye.gazePose.orientation.ToUnityQuaternion() * Vector3.forward;
+                Vector3 rightDirection = rightEye.gazePose.orientation.ToUnityQuaternion() * Vector3.forward;
+
+                origin = (leftOrigin + rightOrigin) * 0.5f;
+                direction = (leftDirection + rightDirection).normalized;
+            }
+            else if (rightValid)
+            {
+                origin = rightEye.gazePose.position.ToUnityVector();
+                direction = (rightEye.gazePose.orientation.ToUnityQuaternion() * Vector3.forward).normalized;
+            }
+            else
+            {
+                origin = leftEye.gazePose.position.ToUnityVector();
+                direction = (leftEye.gazePose.orientation.ToUnityQuaternion() * Vector3.forward).normalized;
+            }
+
+            if (direction.sqrMagnitude <= 0.0001f)
+            {
+                return false;
+            }
+
+            gazePosition = origin;
+            gazeRotation = Quaternion.LookRotation(direction, Vector3.up);
+
+            UpdateVivePupilData();
+            return true;
+        }
+
+        private void UpdateVivePupilData()
+        {
+            lastLeftPupilDiameter = -1f;
+            lastRightPupilDiameter = -1f;
+
+            if (!XR_HTC_eye_tracker.Interop.GetEyePupilData(out XrSingleEyePupilDataHTC[] pupils) || pupils == null || pupils.Length < 2)
+            {
+                return;
+            }
+
+            XrSingleEyePupilDataHTC leftPupil = pupils[(int)XrEyePositionHTC.XR_EYE_POSITION_LEFT_HTC];
+            XrSingleEyePupilDataHTC rightPupil = pupils[(int)XrEyePositionHTC.XR_EYE_POSITION_RIGHT_HTC];
+
+            if (leftPupil.isDiameterValid)
+            {
+                lastLeftPupilDiameter = leftPupil.pupilDiameter;
+            }
+
+            if (rightPupil.isDiameterValid)
+            {
+                lastRightPupilDiameter = rightPupil.pupilDiameter;
             }
         }
 
