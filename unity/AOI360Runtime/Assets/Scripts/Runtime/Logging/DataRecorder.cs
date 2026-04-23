@@ -7,6 +7,7 @@ using AOI360.Runtime.AOI;
 using AOI360.Runtime.Mapping;
 using AOI360.Runtime.Video;
 using EyeGaze.Runtime.Core;
+using EyeGaze.Runtime.Modules;
 using UnityEngine;
 
 namespace AOI360.Runtime.Logging
@@ -18,6 +19,7 @@ namespace AOI360.Runtime.Logging
         [SerializeField] private SphericalMapper sphericalMapper;
         [SerializeField] private AOILookup aoiLookup;
         [SerializeField] private EyeGazeSystem eyeGazeSystem;
+        [SerializeField] private EyeGazeDebugVisualizer debugVisualizer;
 
         [Header("Recording")]
         [SerializeField] private bool recordOnStart = true;
@@ -36,6 +38,7 @@ namespace AOI360.Runtime.Logging
         private readonly List<string> rows = new();
         private bool isRecording = false;
         private float sessionStartTime;
+        private int lastExportedFixationSequence;
 
         private void Start()
         {
@@ -50,29 +53,39 @@ namespace AOI360.Runtime.Logging
 
         private void Update()
         {
+            if (recordOnStart && !isRecording)
+            {
+                TryStartRecording();
+            }
+
             if (!isRecording || sphericalMapper == null || aoiLookup == null || eyeGazeSystem == null)
             {
                 return;
             }
 
-            if (!sphericalMapper.HasValidDirection)
+            if (debugVisualizer == null || !debugVisualizer.HasCommittedFixation)
             {
                 return;
             }
 
-            long frameIndex = videoPlayback != null ? videoPlayback.CurrentFrame : -1;
-            double videoTime = videoPlayback != null ? videoPlayback.CurrentTime : 0d;
+            if (debugVisualizer.LatestCommittedFixationSequence == lastExportedFixationSequence)
+            {
+                return;
+            }
 
+            lastExportedFixationSequence = debugVisualizer.LatestCommittedFixationSequence;
+
+            long frameIndex = videoPlayback != null ? videoPlayback.CurrentFrame : -1;
             Vector3 origin = eyeGazeSystem.LastValidPosition;
             bool isTracked = eyeGazeSystem.HasValidGazePose;
-
             Vector3 dir = sphericalMapper.CurrentDirection;
-            Vector2 uv = sphericalMapper.CurrentUV;
+            Vector2 uv = debugVisualizer.LatestCommittedFixationUv;
             float az = sphericalMapper.CurrentAzimuthRad;
             float el = sphericalMapper.CurrentElevationRad;
-            int aoiId = aoiLookup.CurrentAOIId;
-
-            float timestampMs = (Time.time - sessionStartTime) * 1000f;
+            int aoiId = debugVisualizer.LatestCommittedFixationAoiId;
+            float aoiConfidence = debugVisualizer.LatestCommittedFixationConfidence;
+            float timestampMs = debugVisualizer.LatestCommittedFixationTimestampMs - (sessionStartTime * 1000f);
+            timestampMs = Mathf.Round(timestampMs / 250f) * 250f;
 
             string row = string.Join(",",
                 Escape(participantId),
@@ -80,8 +93,6 @@ namespace AOI360.Runtime.Logging
                 Escape(videoId),
                 timestampMs.ToString("F3", CultureInfo.InvariantCulture),
                 frameIndex.ToString(CultureInfo.InvariantCulture),
-                videoTime.ToString("F6", CultureInfo.InvariantCulture),
-                isTracked ? "1" : "0",
                 origin.x.ToString("F6", CultureInfo.InvariantCulture),
                 origin.y.ToString("F6", CultureInfo.InvariantCulture),
                 origin.z.ToString("F6", CultureInfo.InvariantCulture),
@@ -92,7 +103,11 @@ namespace AOI360.Runtime.Logging
                 el.ToString("F6", CultureInfo.InvariantCulture),
                 uv.x.ToString("F6", CultureInfo.InvariantCulture),
                 uv.y.ToString("F6", CultureInfo.InvariantCulture),
-                aoiId.ToString(CultureInfo.InvariantCulture)
+                aoiId.ToString(CultureInfo.InvariantCulture),
+                aoiConfidence.ToString("F4", CultureInfo.InvariantCulture),
+                "",
+                "",
+                isTracked ? "1" : "0"
             );
 
             rows.Add(row);
@@ -100,9 +115,9 @@ namespace AOI360.Runtime.Logging
             if (logEveryNFrames && Time.frameCount % Mathf.Max(1, frameLogInterval) == 0)
             {
                 Debug.Log(
-                    $"[DataRecorder] frame={frameIndex} | videoTime={videoTime:F3} | " +
+                    $"[DataRecorder] fixation={lastExportedFixationSequence} | frame={frameIndex} | " +
                     $"tracked={isTracked} | origin=({origin.x:F3}, {origin.y:F3}, {origin.z:F3}) | " +
-                    $"uv=({uv.x:F3}, {uv.y:F3}) | aoi={aoiId}"
+                    $"uv=({uv.x:F3}, {uv.y:F3}) | aoi={aoiId} | conf={aoiConfidence:F2}"
                 );
             }
         }
@@ -119,6 +134,7 @@ namespace AOI360.Runtime.Logging
         {
             sessionStartTime = Time.time;
             isRecording = true;
+            lastExportedFixationSequence = 0;
 
             if (logRecordingState)
             {
@@ -170,6 +186,11 @@ namespace AOI360.Runtime.Logging
                 return;
             }
 
+            if (debugVisualizer == null)
+            {
+                debugVisualizer = FindFirstObjectByType<EyeGazeDebugVisualizer>();
+            }
+
             if (waitUntilVideoPrepared && videoPlayback != null && !videoPlayback.IsPrepared)
             {
                 return;
@@ -180,7 +201,7 @@ namespace AOI360.Runtime.Logging
 
         private string BuildHeader()
         {
-            return "participant_id,session_id,video_id,timestamp_ms,frame_index,video_time,is_tracked,direction_x,direction_y,direction_z,azimuth_rad,elevation_rad,uv_x,uv_y,aoi_id";
+            return "participant_id,session_id,video_id,timestamp_ms,frame_index,origin_x,origin_y,origin_z,direction_x,direction_y,direction_z,azimuth_rad,elevation_rad,uv_x,uv_y,aoi_id,aoi_confidence,left_pupil_diameter,right_pupil_diameter,is_valid";
         }
 
         private string BuildCsvContent()

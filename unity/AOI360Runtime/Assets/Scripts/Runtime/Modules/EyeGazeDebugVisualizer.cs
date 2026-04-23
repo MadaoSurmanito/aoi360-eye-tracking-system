@@ -5,68 +5,68 @@ using UnityEngine;
 
 namespace EyeGaze.Runtime.Modules
 {
-    // This helper module is responsible only for debug visualization and debug logging.
+    // Debug visualization plus a lightweight fixation detector for the Phase 0 runtime.
     public class EyeGazeDebugVisualizer : EyeGazeModuleBase
     {
         [Header("Debug")]
-        // Enables or disables all debug line visualizations
         [SerializeField] private bool enableDebugRay = false;
-
-        // Optional LineRenderer to visualize the eye gaze ray in build and in VR
         [SerializeField] private LineRenderer debugLineRenderer;
-
-        // Color of the eye gaze debug ray visualization
         [SerializeField] private Color debugRayColor = Color.red;
-
-        // Optional LineRenderer to visualize the forward direction of the reference camera
         [SerializeField] private LineRenderer debugCameraLineRenderer;
-
-        // Color of the camera debug ray visualization
         [SerializeField] private Color debugCameraRayColor = Color.blue;
-
-        // Optional LineRenderer to visualize the offset between the camera position and the gaze origin
         [SerializeField] private LineRenderer debugOffsetLineRenderer;
-
-        // Color of the offset visualization between the camera position and the gaze origin
         [SerializeField] private Color debugOffsetLineColor = Color.white;
 
         [Header("Fallback")]
-        // When tracking is lost, keep showing a debug ray using the reference camera forward
         [SerializeField] private bool showFallbackWhenTrackingLost = true;
 
         [Header("360 Debug")]
-        // Optional mapper used to inspect current UV values
         [SerializeField] private SphericalMapper sphericalMapper;
-
-        // Optional AOI lookup used to inspect which AOI is currently being looked at
         [SerializeField] private AOILookup aoiLookup;
-
-        // Center transform of the 360 sphere
         [SerializeField] private Transform sphereCenter;
-
-        // Radius of the 360 sphere
         [SerializeField] private float sphereRadius = 5f;
-
-        // Optional marker placed on the hit point over the 360 sphere
         [SerializeField] private Transform hitMarker;
-
-        // Enables or disables the hit marker visualization
         [SerializeField] private bool enableHitMarker = true;
-
-        // Enables or disables periodic logs about UV and AOI data
         [SerializeField] private bool enableAOILogging = true;
 
-        [Header("Logs")]
-        // Enables or disables periodic debug logs comparing the gaze origin and the camera position
-        [SerializeField] private bool enableDebugLogs = false;
+        [Header("Fixations")]
+        [SerializeField] private float fixationCommitIntervalSeconds = 0.25f;
+        [SerializeField] private float fixationAngularThresholdDegrees = 3f;
+        [SerializeField] private float fixationMarkerBaseScale = 0.08f;
+        [SerializeField] private float fixationMarkerScaleGrowth = 0.2f;
+        [SerializeField] private float fixationMarkerMaxScale = 0.22f;
 
-        // Number of frames between each debug log when logging is active
+        [Header("Logs")]
+        [SerializeField] private bool enableDebugLogs = false;
         [SerializeField] private int debugLogEveryNFrames = 60;
 
         private Camera referenceCamera;
         private float maxDistance;
+        private Renderer hitMarkerRenderer;
+        private Transform hitMarkerVisual;
+        private Material runtimeHitMarkerMaterial;
+        private Texture hitMarkerTexture;
+        private Vector3 hitMarkerInitialScale = Vector3.one;
+        private float fixationCandidateStartTimestampMs;
 
-        // Called once by the main system during initialization.
+        private bool fixationCandidateValid;
+        private Vector3 fixationCandidateDirection = Vector3.forward;
+        private Vector3 fixationAnchorPoint = Vector3.zero;
+        private Vector3 fixationAnchorNormal = Vector3.forward;
+        private float fixationCandidateDuration;
+        private int fixationCommitCount;
+        private int fixationSequence;
+
+        public bool HasCommittedFixation { get; private set; }
+        public int LatestCommittedFixationSequence { get; private set; }
+        public float LatestCommittedFixationTimestampMs { get; private set; }
+        public Vector3 LatestCommittedFixationPoint { get; private set; }
+        public Vector3 LatestCommittedFixationNormal { get; private set; }
+        public Vector2 LatestCommittedFixationUv { get; private set; }
+        public int LatestCommittedFixationAoiId { get; private set; }
+        public float LatestCommittedFixationConfidence { get; private set; }
+        public int ActiveFixationCommitCount => fixationCommitCount;
+
         public override void Initialize(EyeGazeSystem systemReference)
         {
             base.Initialize(systemReference);
@@ -75,18 +75,20 @@ namespace EyeGaze.Runtime.Modules
             maxDistance = system.MaxDistance;
 
             ConfigureAllLineRenderers();
+            CacheHitMarkerRenderer();
+            ResetFixationState();
             SetHitMarkerEnabled(false);
         }
 
-        // Called every frame when valid gaze data is available.
         public override void ProcessFrame(EyeGazeFrameData frameData)
         {
-            UpdateVisualization(frameData.GazeOrigin, frameData.GazeDirection, frameData.RayEndPoint);
+            UpdateVisualization(frameData.GazeOrigin, frameData.GazeDirection, frameData.RayEndPoint, frameData.DeltaTime);
         }
 
-        // Called when tracking is lost or invalid gaze data must be handled.
         public override void HandleTrackingLost(float deltaTime)
         {
+            ResetFixationState();
+
             if (!enableDebugRay)
             {
                 DisableAll();
@@ -99,20 +101,22 @@ namespace EyeGaze.Runtime.Modules
                 Vector3 fallbackDirection = referenceCamera.transform.forward.normalized;
                 Vector3 fallbackEndPoint = fallbackOrigin + fallbackDirection * maxDistance;
 
-                UpdateVisualization(fallbackOrigin, fallbackDirection, fallbackEndPoint);
+                DrawGazeRay(fallbackOrigin, fallbackEndPoint);
+                DrawReferenceCameraRay();
+                DrawCameraToGazeOffset(fallbackOrigin);
+                SetHitMarkerEnabled(false);
                 return;
             }
 
             DisableAll();
         }
 
-        // Called when the main system is disabled and the module should clear transient state.
         public override void ResetModuleState()
         {
+            ResetFixationState();
             DisableAll();
         }
 
-        // Disable all debug visuals
         public void DisableAll()
         {
             SetLineRendererEnabled(debugLineRenderer, false);
@@ -121,8 +125,7 @@ namespace EyeGaze.Runtime.Modules
             SetHitMarkerEnabled(false);
         }
 
-        // Update all debug visuals and logs using the latest gaze data
-        public void UpdateVisualization(Vector3 gazeOrigin, Vector3 gazeDirection, Vector3 gazeEndPoint)
+        public void UpdateVisualization(Vector3 gazeOrigin, Vector3 gazeDirection, Vector3 gazeEndPoint, float deltaTime)
         {
             if (!enableDebugRay)
             {
@@ -133,11 +136,10 @@ namespace EyeGaze.Runtime.Modules
             DrawGazeRay(gazeOrigin, gazeEndPoint);
             DrawReferenceCameraRay();
             DrawCameraToGazeOffset(gazeOrigin);
-            UpdateSphereHitMarker(gazeOrigin, gazeDirection);
+            UpdateSphereHitMarker(gazeOrigin, gazeDirection, deltaTime);
             WritePeriodicDebugLog(gazeOrigin, gazeDirection);
         }
 
-        // Configure every optional LineRenderer used by this module
         private void ConfigureAllLineRenderers()
         {
             EyeGazeUtils.ConfigureLineRenderer(debugLineRenderer, debugRayColor, enableDebugRay);
@@ -145,7 +147,42 @@ namespace EyeGaze.Runtime.Modules
             EyeGazeUtils.ConfigureLineRenderer(debugOffsetLineRenderer, debugOffsetLineColor, enableDebugRay);
         }
 
-        // Draw the eye gaze ray
+        private void CacheHitMarkerRenderer()
+        {
+            if (hitMarker == null)
+            {
+                return;
+            }
+
+            hitMarkerRenderer = hitMarker.GetComponentInChildren<Renderer>(true);
+
+            if (hitMarkerRenderer == null)
+            {
+                return;
+            }
+
+            hitMarkerVisual = hitMarkerRenderer.transform;
+            hitMarkerInitialScale = hitMarkerVisual.localScale;
+            hitMarkerTexture = hitMarkerRenderer.sharedMaterial != null
+                ? hitMarkerRenderer.sharedMaterial.mainTexture
+                : null;
+            hitMarkerVisual.localPosition = new Vector3(0f, 0f, -0.01f);
+
+            Shader markerShader = ResolveTransparentShader();
+            if (markerShader == null)
+            {
+                Debug.LogWarning("[EyeGazeDebugVisualizer] Could not find a transparent runtime shader for hit markers.");
+                return;
+            }
+
+            runtimeHitMarkerMaterial = new Material(markerShader);
+            runtimeHitMarkerMaterial.name = "Runtime_HitMarker";
+            ConfigureTransparentMaterial(runtimeHitMarkerMaterial, hitMarkerTexture, Color.white);
+            hitMarkerRenderer.material = runtimeHitMarkerMaterial;
+            hitMarkerRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            hitMarkerRenderer.receiveShadows = false;
+        }
+
         private void DrawGazeRay(Vector3 gazeOrigin, Vector3 gazeEndPoint)
         {
             if (debugLineRenderer == null)
@@ -159,7 +196,6 @@ namespace EyeGaze.Runtime.Modules
             debugLineRenderer.SetPosition(1, gazeEndPoint);
         }
 
-        // Draw the camera forward ray for comparison
         private void DrawReferenceCameraRay()
         {
             if (debugCameraLineRenderer == null || referenceCamera == null)
@@ -176,7 +212,6 @@ namespace EyeGaze.Runtime.Modules
             debugCameraLineRenderer.SetPosition(1, cameraEnd);
         }
 
-        // Draw the offset line between the camera position and the gaze origin
         private void DrawCameraToGazeOffset(Vector3 gazeOrigin)
         {
             if (debugOffsetLineRenderer == null || referenceCamera == null)
@@ -190,8 +225,7 @@ namespace EyeGaze.Runtime.Modules
             debugOffsetLineRenderer.SetPosition(1, gazeOrigin);
         }
 
-        // Place a marker where the gaze ray intersects the 360 sphere
-        private void UpdateSphereHitMarker(Vector3 gazeOrigin, Vector3 gazeDirection)
+        private void UpdateSphereHitMarker(Vector3 gazeOrigin, Vector3 gazeDirection, float deltaTime)
         {
             if (!enableHitMarker || sphereCenter == null || hitMarker == null)
             {
@@ -206,18 +240,116 @@ namespace EyeGaze.Runtime.Modules
                 sphereRadius,
                 out Vector3 hitPoint))
             {
+                ResetFixationState();
+                SetHitMarkerEnabled(false);
+                return;
+            }
+
+            Vector3 outwardNormal = (hitPoint - sphereCenter.position).normalized;
+            Vector3 inwardDirection = -outwardNormal;
+            UpdateFixationState(hitPoint, outwardNormal, inwardDirection, deltaTime);
+        }
+
+        private void UpdateFixationState(Vector3 hitPoint, Vector3 outwardNormal, Vector3 inwardDirection, float deltaTime)
+        {
+            if (!fixationCandidateValid)
+            {
+                fixationCandidateValid = true;
+                fixationCandidateDirection = inwardDirection;
+                fixationAnchorPoint = hitPoint;
+                fixationAnchorNormal = outwardNormal;
+                fixationCandidateStartTimestampMs = Time.time * 1000f;
+                fixationCandidateDuration = deltaTime;
+                fixationCommitCount = 0;
+                SetHitMarkerEnabled(false);
+                return;
+            }
+
+            float angularDelta = Vector3.Angle(fixationCandidateDirection, inwardDirection);
+            if (angularDelta > fixationAngularThresholdDegrees)
+            {
+                fixationCandidateDirection = inwardDirection;
+                fixationAnchorPoint = hitPoint;
+                fixationAnchorNormal = outwardNormal;
+                fixationCandidateStartTimestampMs = Time.time * 1000f;
+                fixationCandidateDuration = deltaTime;
+                fixationCommitCount = 0;
+                SetHitMarkerEnabled(false);
+                return;
+            }
+
+            fixationCandidateDuration += deltaTime;
+            int targetCommitCount = Mathf.FloorToInt(fixationCandidateDuration / fixationCommitIntervalSeconds);
+            while (targetCommitCount > fixationCommitCount)
+            {
+                CommitFixation();
+            }
+
+            if (fixationCommitCount <= 0)
+            {
                 SetHitMarkerEnabled(false);
                 return;
             }
 
             SetHitMarkerEnabled(true);
-            hitMarker.position = hitPoint;
+            hitMarker.position = fixationAnchorPoint;
+            hitMarker.rotation = Quaternion.LookRotation(fixationAnchorNormal);
 
-            Vector3 outwardNormal = (hitPoint - sphereCenter.position).normalized;
-            hitMarker.rotation = Quaternion.LookRotation(outwardNormal);
+            float scaleMultiplier = 1f + (fixationCommitCount - 1) * fixationMarkerScaleGrowth;
+            float clampedScale = Mathf.Min(fixationMarkerBaseScale * scaleMultiplier, fixationMarkerMaxScale);
+            if (hitMarkerVisual != null)
+            {
+                hitMarkerVisual.localScale = new Vector3(clampedScale, clampedScale, clampedScale);
+            }
+
+            if (runtimeHitMarkerMaterial != null)
+            {
+                runtimeHitMarkerMaterial.color = ResolveFixationColor();
+            }
         }
 
-        // Periodically log the gaze origin, camera position, UV and AOI data
+        private void CommitFixation()
+        {
+            fixationCommitCount++;
+            fixationSequence++;
+            HasCommittedFixation = true;
+            LatestCommittedFixationSequence = fixationSequence;
+            LatestCommittedFixationTimestampMs = fixationCandidateStartTimestampMs + (fixationCommitCount * fixationCommitIntervalSeconds * 1000f);
+            LatestCommittedFixationPoint = fixationAnchorPoint;
+            LatestCommittedFixationNormal = fixationAnchorNormal;
+            LatestCommittedFixationUv = sphericalMapper != null ? sphericalMapper.CurrentUV : Vector2.zero;
+            LatestCommittedFixationAoiId = aoiLookup != null ? aoiLookup.CurrentAOIId : 0;
+            LatestCommittedFixationConfidence = aoiLookup != null ? aoiLookup.CurrentAOIConfidence : 0f;
+        }
+
+        private Color ResolveFixationColor()
+        {
+            if (aoiLookup == null)
+            {
+                return Color.white;
+            }
+
+            Color baseColor = aoiLookup.CurrentAOIId > 0 ? aoiLookup.CurrentAOIColor : Color.white;
+            baseColor.a = 1f;
+            return Color.Lerp(baseColor, Color.white, 1f - Mathf.Clamp01(aoiLookup.CurrentAOIConfidence));
+        }
+
+        private void ResetFixationState()
+        {
+            fixationCandidateValid = false;
+            fixationCandidateDirection = Vector3.forward;
+            fixationAnchorPoint = Vector3.zero;
+            fixationAnchorNormal = Vector3.forward;
+            fixationCandidateStartTimestampMs = 0f;
+            fixationCandidateDuration = 0f;
+            fixationCommitCount = 0;
+
+            if (hitMarkerVisual != null)
+            {
+                hitMarkerVisual.localScale = hitMarkerInitialScale;
+            }
+        }
+
         private void WritePeriodicDebugLog(Vector3 gazeOrigin, Vector3 gazeDirection)
         {
             if ((!enableDebugLogs && !enableAOILogging) || debugLogEveryNFrames <= 0)
@@ -231,7 +363,6 @@ namespace EyeGaze.Runtime.Modules
             }
 
             string cameraInfo = "";
-
             if (enableDebugLogs && referenceCamera != null)
             {
                 Vector3 cameraPosition = referenceCamera.transform.position;
@@ -246,7 +377,6 @@ namespace EyeGaze.Runtime.Modules
             }
 
             string mapperInfo = "";
-
             if (enableAOILogging && sphericalMapper != null && sphericalMapper.HasValidDirection)
             {
                 mapperInfo =
@@ -256,23 +386,15 @@ namespace EyeGaze.Runtime.Modules
             }
 
             string aoiInfo = "";
-
             if (enableAOILogging && aoiLookup != null)
             {
-                aoiInfo = $" | AOI={GetAOIDebugText()}";
+                aoiInfo =
+                    $" | AOI={aoiLookup.CurrentAOIId}" +
+                    $" | Conf={aoiLookup.CurrentAOIConfidence:F2}" +
+                    $" | FixSteps={fixationCommitCount}";
             }
 
             Debug.Log($"[EYE DEBUG] {cameraInfo}{mapperInfo}{aoiInfo}");
-        }
-
-        private string GetAOIDebugText()
-        {
-            if (aoiLookup == null)
-            {
-                return "N/A";
-            }
-
-            return aoiLookup.CurrentAOIId.ToString();
         }
 
         private bool TryIntersectRaySphere(
@@ -298,7 +420,6 @@ namespace EyeGaze.Runtime.Modules
             float sqrtDiscriminant = Mathf.Sqrt(discriminant);
             float t1 = (-b - sqrtDiscriminant) / (2f * a);
             float t2 = (-b + sqrtDiscriminant) / (2f * a);
-
             float t = -1f;
 
             if (t1 > 0f && t2 > 0f)
@@ -337,6 +458,67 @@ namespace EyeGaze.Runtime.Modules
             {
                 hitMarker.gameObject.SetActive(value);
             }
+        }
+
+        private Shader ResolveTransparentShader()
+        {
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader != null)
+            {
+                return shader;
+            }
+
+            shader = Shader.Find("Unlit/Transparent");
+            return shader;
+        }
+
+        private void ConfigureTransparentMaterial(Material material, Texture texture, Color color)
+        {
+            material.mainTexture = texture;
+            material.color = color;
+
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", texture);
+            }
+
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", color);
+            }
+
+            if (material.HasProperty("_Surface"))
+            {
+                material.SetFloat("_Surface", 1f);
+            }
+
+            if (material.HasProperty("_Blend"))
+            {
+                material.SetFloat("_Blend", 0f);
+            }
+
+            if (material.HasProperty("_Cull"))
+            {
+                material.SetFloat("_Cull", 0f);
+            }
+
+            if (material.HasProperty("_SrcBlend"))
+            {
+                material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            }
+
+            if (material.HasProperty("_DstBlend"))
+            {
+                material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            }
+
+            if (material.HasProperty("_ZWrite"))
+            {
+                material.SetFloat("_ZWrite", 0f);
+            }
+
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         }
     }
 }

@@ -26,6 +26,7 @@ namespace AOI360.Runtime.Video
         public bool IsPrepared => isPrepared;
         public long CurrentFrame => videoPlayer != null ? videoPlayer.frame : -1;
         public double CurrentTime => videoPlayer != null ? videoPlayer.time : 0d;
+        public bool IsPlaying => videoPlayer != null && videoPlayer.isPlaying;
 
         private void Awake()
         {
@@ -96,6 +97,18 @@ namespace AOI360.Runtime.Video
                     Debug.Log("[VideoPlayback] Reproducción iniciada.");
                 }
             }
+        }
+
+        private void OnDestroy()
+        {
+            if (videoPlayer == null)
+            {
+                return;
+            }
+
+            videoPlayer.prepareCompleted -= HandlePrepareCompleted;
+            videoPlayer.errorReceived -= HandleErrorReceived;
+            videoPlayer.loopPointReached -= HandleLoopPointReached;
         }
 
         private void HandlePrepareCompleted(VideoPlayer source)
