@@ -116,4 +116,5 @@ See the Phase 0 documentation for implementation details:
 - `docs/phase0/README.md`
 - `docs/phase0/runtime-unity.md`
 - `docs/phase0/aoi-data-contract.md`
+- `docs/phase0/csv-schema.md`
 - `docs/phase0/validation-checklist.md`

@@ -28,4 +28,5 @@ Phase 0 does not yet generate AOIs automatically. AOI maps are still manual or h
 
 - `runtime-unity.md` -> current Unity runtime behavior
 - `aoi-data-contract.md` -> AOI map and metadata contract for Unity and Python
+- `csv-schema.md` -> exported fixation CSV fields, units, and interpretation notes
 - `validation-checklist.md` -> practical checks for testing on device
