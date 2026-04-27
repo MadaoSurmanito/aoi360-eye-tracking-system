@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import re
 from pathlib import Path
 
@@ -43,6 +44,42 @@ def _lazy_import_transformers_stack():
         ) from exc
 
     return torch, Image, tqdm, AutoModelForZeroShotObjectDetection, AutoProcessor
+
+
+def _post_process_grounding_dino_results(
+    processor,
+    outputs,
+    input_ids,
+    box_threshold: float,
+    text_threshold: float,
+    target_sizes,
+):
+    post_process = processor.post_process_grounded_object_detection
+    parameters = inspect.signature(post_process).parameters
+
+    kwargs = {
+        "outputs": outputs,
+        "input_ids": input_ids,
+        "target_sizes": target_sizes,
+    }
+
+    # Transformers has shipped this API under two compatible names across versions:
+    # `threshold` in some releases and `box_threshold` in others. Support both so the
+    # project does not depend on a single pinned signature to run.
+    if "box_threshold" in parameters:
+        kwargs["box_threshold"] = box_threshold
+    elif "threshold" in parameters:
+        kwargs["threshold"] = box_threshold
+    else:
+        raise RuntimeError(
+            "Unsupported Grounding DINO processor API: expected either "
+            "`box_threshold` or `threshold` in post_process_grounded_object_detection()."
+        )
+
+    if "text_threshold" in parameters:
+        kwargs["text_threshold"] = text_threshold
+
+    return post_process(**kwargs)
 
 
 def detect_frames(
@@ -94,9 +131,10 @@ def detect_frames(
         with torch.no_grad():
             outputs = model(**inputs)
 
-        results = processor.post_process_grounded_object_detection(
-            outputs,
-            inputs.input_ids,
+        results = _post_process_grounding_dino_results(
+            processor=processor,
+            outputs=outputs,
+            input_ids=inputs.input_ids,
             box_threshold=box_threshold,
             text_threshold=text_threshold,
             target_sizes=[(image.height, image.width)],
