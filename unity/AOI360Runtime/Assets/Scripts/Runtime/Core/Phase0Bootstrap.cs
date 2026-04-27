@@ -23,6 +23,7 @@ namespace AOI360.Runtime.Core
         private Texture2D overlayTexture;
         private Material overlayMaterial;
         private int lastHighlightedAoiId = int.MinValue;
+        private Texture2D lastOverlaySourceTexture;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrap()
@@ -57,14 +58,32 @@ namespace AOI360.Runtime.Core
 
         private void Update()
         {
-            if (!createAoiOverlay || aoiLookup == null || overlayMaterial == null)
+            ResolveReferences();
+
+            if (!createAoiOverlay || aoiLookup == null)
             {
                 return;
             }
 
-            if (aoiLookup.CurrentAOIId != lastHighlightedAoiId)
+            if (overlaySphere == null || overlayMaterial == null)
             {
-                RefreshOverlayTexture(forceRefresh: false);
+                EnsureOverlaySphere();
+            }
+
+            if (overlayMaterial == null)
+            {
+                return;
+            }
+
+            Texture2D currentSourceTexture = aoiLookup.AOIMapTexture;
+            if (currentSourceTexture == null)
+            {
+                return;
+            }
+
+            if (currentSourceTexture != lastOverlaySourceTexture || aoiLookup.CurrentAOIId != lastHighlightedAoiId)
+            {
+                RefreshOverlayTexture(forceRefresh: currentSourceTexture != lastOverlaySourceTexture);
             }
         }
 
@@ -166,6 +185,7 @@ namespace AOI360.Runtime.Core
             }
 
             lastHighlightedAoiId = highlightedAoiId;
+            lastOverlaySourceTexture = sourceTexture;
 
             if (overlayTexture == null || overlayTexture.width != sourceTexture.width || overlayTexture.height != sourceTexture.height)
             {

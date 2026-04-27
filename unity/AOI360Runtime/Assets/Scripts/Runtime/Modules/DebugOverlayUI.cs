@@ -14,6 +14,7 @@ namespace AOI360.Runtime.Modules
         [SerializeField] private VideoPlayback videoPlayback;
         [SerializeField] private SphericalMapper sphericalMapper;
         [SerializeField] private AOILookup aoiLookup;
+        [SerializeField] private AOISequenceRuntimeLoader aoiSequenceRuntimeLoader;
         [SerializeField] private EyeGazeSystem eyeGazeSystem;
         [SerializeField] private EyeGazeDebugVisualizer debugVisualizer;
 
@@ -37,6 +38,11 @@ namespace AOI360.Runtime.Modules
                 eyeGazeSystem = FindFirstObjectByType<EyeGazeSystem>();
             }
 
+            if (aoiSequenceRuntimeLoader == null)
+            {
+                aoiSequenceRuntimeLoader = FindFirstObjectByType<AOISequenceRuntimeLoader>();
+            }
+
             long frameIndex = videoPlayback != null ? videoPlayback.CurrentFrame : -1;
             double videoTime = videoPlayback != null ? videoPlayback.CurrentTime : 0d;
 
@@ -53,17 +59,30 @@ namespace AOI360.Runtime.Modules
             string rightPupil = eyeGazeSystem != null && eyeGazeSystem.LastRightPupilDiameter >= 0f
                 ? eyeGazeSystem.LastRightPupilDiameter.ToString("F3")
                 : "-";
+            string sequenceFolder = aoiSequenceRuntimeLoader != null && !string.IsNullOrWhiteSpace(aoiSequenceRuntimeLoader.ActiveSequenceFolder)
+                ? aoiSequenceRuntimeLoader.ActiveSequenceFolder
+                : "-";
+            int keyframeFrame = aoiSequenceRuntimeLoader != null ? aoiSequenceRuntimeLoader.CurrentKeyframeFrameIndex : -1;
+            string mapFile = aoiSequenceRuntimeLoader != null && !string.IsNullOrWhiteSpace(aoiSequenceRuntimeLoader.CurrentMapFile)
+                ? aoiSequenceRuntimeLoader.CurrentMapFile
+                : aoiLookup.CurrentTextureName;
+            int sequenceAoiCount = aoiSequenceRuntimeLoader != null ? aoiSequenceRuntimeLoader.GlobalAoiCount : 0;
+            int keyframeAoiCount = aoiSequenceRuntimeLoader != null ? aoiSequenceRuntimeLoader.CurrentKeyframeAoiCount : 0;
 
             debugText.text =
                 $"Frame: {frameIndex}\n" +
                 $"Video Time: {videoTime:F3}\n" +
                 $"UV: ({uv.x:F3}, {uv.y:F3})\n" +
                 $"Tracking Source: {trackingSource}\n" +
+                $"AOI Seq: {sequenceFolder}\n" +
+                $"AOI Keyframe: {keyframeFrame}\n" +
+                $"AOI Map: {mapFile}\n" +
                 $"AOI ID: {aoiId}\n" +
                 $"AOI Name: {aoiName}\n" +
                 $"AOI Category: {aoiCategory}\n" +
                 $"AOI Conf: {confidence:F2}\n" +
                 $"AOI Mode: {aoiLookup.ActiveEncodingLabel}\n" +
+                $"AOIs Global/Frame: {sequenceAoiCount} / {keyframeAoiCount}\n" +
                 $"Pupils L/R: {leftPupil} / {rightPupil}\n" +
                 $"Fixation Steps: {fixationSteps}";
         }

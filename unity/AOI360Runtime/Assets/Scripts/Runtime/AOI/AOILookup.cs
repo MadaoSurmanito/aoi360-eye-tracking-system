@@ -84,11 +84,14 @@ namespace AOI360.Runtime.AOI
         public bool HasMetadataDefinitions => colorToDefinition.Count > 0;
         public string ActiveEncodingLabel => encodingMode.ToString();
         public string LoadedMetadataSource { get; private set; } = "";
+        public string CurrentTextureName => aoiMapTexture != null ? aoiMapTexture.name : "";
 
         private int lastLoggedAOIId = -1;
         private bool hasWarnedTextureNotReadable;
         private bool hasWarnedMetadataMissing;
         private bool metadataLoaded;
+        private string runtimeMetadataJsonText;
+        private string runtimeMetadataSource = "";
         private readonly List<int> neighborAOIIds = new();
         private readonly HashSet<int> neighborAOISet = new();
         private readonly Dictionary<uint, AoiDefinition> colorToDefinition = new();
@@ -202,6 +205,37 @@ namespace AOI360.Runtime.AOI
         public bool TryGetDefinition(int aoiId, out AoiDefinition definition)
         {
             return idToDefinition.TryGetValue(aoiId, out definition);
+        }
+
+        public void SetRuntimeAoiTexture(Texture2D runtimeTexture)
+        {
+            if (aoiMapTexture == runtimeTexture)
+            {
+                return;
+            }
+
+            aoiMapTexture = runtimeTexture;
+            hasWarnedTextureNotReadable = false;
+            lastLoggedAOIId = -1;
+            ValidateTextureSettings();
+        }
+
+        public void SetRuntimeMetadataJson(string metadataJsonText, string metadataSource = "")
+        {
+            runtimeMetadataJsonText = metadataJsonText;
+            runtimeMetadataSource = metadataSource ?? "";
+            metadataLoaded = false;
+            hasWarnedMetadataMissing = false;
+            colorToDefinition.Clear();
+            idToDefinition.Clear();
+            LoadedMetadataSource = "";
+            lastLoggedAOIId = -1;
+        }
+
+        public void SetRuntimeAoiData(Texture2D runtimeTexture, string metadataJsonText, string metadataSource = "")
+        {
+            SetRuntimeAoiTexture(runtimeTexture);
+            SetRuntimeMetadataJson(metadataJsonText, metadataSource);
         }
 
         private int ResolveAOIIdFromColor(Color pixel)
@@ -349,7 +383,16 @@ namespace AOI360.Runtime.AOI
                 return;
             }
 
-            string metadataJsonText = aoiMetadataJson != null ? aoiMetadataJson.text : null;
+            string metadataJsonText = !string.IsNullOrWhiteSpace(runtimeMetadataJsonText)
+                ? runtimeMetadataJsonText
+                : aoiMetadataJson != null ? aoiMetadataJson.text : null;
+
+            if (!string.IsNullOrWhiteSpace(runtimeMetadataJsonText))
+            {
+                LoadedMetadataSource = string.IsNullOrWhiteSpace(runtimeMetadataSource)
+                    ? "RuntimeJson"
+                    : runtimeMetadataSource;
+            }
 
             // StreamingAssets is the main handoff point from the future Python pipeline because
             // it lets the experiment consume exported AOI metadata without hard-wiring editor assets.

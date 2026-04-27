@@ -24,6 +24,7 @@ namespace AOI360.Runtime.Video
         private bool isPrepared = false;
 
         public bool IsPrepared => isPrepared;
+        public string VideoFileName => videoFileName;
         public long CurrentFrame => videoPlayer != null ? videoPlayer.frame : -1;
         public double CurrentTime => videoPlayer != null ? videoPlayer.time : 0d;
         public bool IsPlaying => videoPlayer != null && videoPlayer.isPlaying;
