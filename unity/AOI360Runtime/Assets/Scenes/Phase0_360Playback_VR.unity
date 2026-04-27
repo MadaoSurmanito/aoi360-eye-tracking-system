@@ -536,6 +536,7 @@ MonoBehaviour:
   videoPlayback: {fileID: 730990565}
   sphericalMapper: {fileID: 1536635697}
   aoiLookup: {fileID: 233558556}
+  eyeGazeSystem: {fileID: 0}
   debugVisualizer: {fileID: 0}
   debugText: {fileID: 259122112}
 --- !u!1 &233558554
@@ -584,7 +585,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.AOI.AOILookup
   sphericalMapper: {fileID: 1536635697}
   aoiMapTexture: {fileID: 2800000, guid: c9c9f6c3198a7ea40a8e1f71d728803a, type: 3}
-  useGrayscaleIdEncoding: 1
+  aoiMetadataJson: {fileID: 0}
+  encodingMode: 0
+  autoLoadMetadataFromStreamingAssets: 1
+  metadataStreamingFolder: AOIMaps
+  autoLoadMetadataFromResources: 1
+  metadataResourcesFolder: AOIMaps
+  grayscaleTolerance: 0.01
   neighborhoodRadiusDegrees: 1.5
   neighborhoodSamples: 8
   logAOIChanges: 1
@@ -1139,7 +1146,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 62fc31960f873a14e90b99afff563c28, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.Video.VideoPlayback
-  videoFileName: sample360.mp4
+  videoFileName: video_360.mp4
   playOnStart: 1
   loop: 1
   targetTexture: {fileID: 8400000, guid: 4627997114277f641b5710201848229e, type: 2}
@@ -1688,6 +1695,9 @@ MonoBehaviour:
   clampVisualFixationDistance: 0
   maxVisualFixationDistance: 5
   referenceCamera: {fileID: 189643245}
+  trackingSpace: {fileID: 0}
+  allowViveEyeTrackerFallback: 1
+  logTrackingSourceChanges: 1
   moduleBehaviours:
   - {fileID: 744106711}
   - {fileID: 1593409249}
