@@ -38,29 +38,14 @@ def parse_label_filters(values: list[str] | None) -> set[str]:
     return {value.strip().lower() for value in values if value and value.strip()}
 
 
-def build_aoi_map(
+def load_and_filter_detections(
     detections_csv: str | Path,
-    frames_dir: str | Path,
-    output_map_path: str | Path,
-    output_metadata_path: str | Path,
-    video_name: str,
-    fps: int = 30,
-    frame_index: int | None = None,
-    frame_file: str | None = None,
     include_labels: list[str] | None = None,
     min_confidence: float = 0.35,
-    box_padding: int = 0,
-) -> dict[str, object]:
+) -> pd.DataFrame:
     detections_csv = Path(detections_csv)
-    frames_dir = Path(frames_dir)
-    output_map_path = Path(output_map_path)
-    output_metadata_path = Path(output_metadata_path)
-
     if not detections_csv.exists():
         raise FileNotFoundError(f"Detections CSV not found: {detections_csv}")
-
-    if not frames_dir.exists():
-        raise FileNotFoundError(f"Frames directory not found: {frames_dir}")
 
     detections = pd.read_csv(detections_csv)
     if detections.empty:
@@ -72,15 +57,6 @@ def build_aoi_map(
             "Detections CSV is missing required columns: " + ", ".join(missing_columns)
         )
 
-    if frame_file and frame_index is not None:
-        raise ValueError("Use either frame_file or frame_index, not both.")
-
-    if box_padding < 0:
-        raise ValueError("box_padding must be >= 0")
-
-    if fps < 0:
-        raise ValueError("fps must be >= 0")
-
     label_filters = parse_label_filters(include_labels)
     if label_filters:
         detections = detections[detections["label"].astype(str).str.lower().isin(label_filters)]
@@ -89,18 +65,52 @@ def build_aoi_map(
     if detections.empty:
         raise RuntimeError("No detections survived the current filters.")
 
+    return detections
+
+
+def select_frame_detections(
+    detections: pd.DataFrame,
+    frame_index: int | None = None,
+    frame_file: str | None = None,
+) -> pd.DataFrame:
+    if frame_file and frame_index is not None:
+        raise ValueError("Use either frame_file or frame_index, not both.")
+
     if frame_file:
-        detections = detections[detections["frame_file"] == frame_file].copy()
+        selected = detections[detections["frame_file"] == frame_file].copy()
     elif frame_index is not None:
-        detections = detections[detections["frame_index"] == int(frame_index)].copy()
+        selected = detections[detections["frame_index"] == int(frame_index)].copy()
     else:
         chosen_frame_index = int(detections.sort_values(["frame_index", "detection_index"]).iloc[0]["frame_index"])
-        detections = detections[detections["frame_index"] == chosen_frame_index].copy()
+        selected = detections[detections["frame_index"] == chosen_frame_index].copy()
 
-    if detections.empty:
+    if selected.empty:
         raise RuntimeError("No detections remain for the selected frame.")
 
-    detections = detections.sort_values(["confidence", "detection_index"], ascending=[False, True]).reset_index(drop=True)
+    return selected.sort_values(["confidence", "detection_index"], ascending=[False, True]).reset_index(drop=True)
+
+
+def render_aoi_map_from_detections(
+    detections: pd.DataFrame,
+    frames_dir: str | Path,
+    output_map_path: str | Path,
+    output_metadata_path: str | Path,
+    video_name: str,
+    fps: int = 30,
+    box_padding: int = 0,
+) -> dict[str, object]:
+    frames_dir = Path(frames_dir)
+    output_map_path = Path(output_map_path)
+    output_metadata_path = Path(output_metadata_path)
+
+    if not frames_dir.exists():
+        raise FileNotFoundError(f"Frames directory not found: {frames_dir}")
+
+    if box_padding < 0:
+        raise ValueError("box_padding must be >= 0")
+
+    if fps < 0:
+        raise ValueError("fps must be >= 0")
 
     selected_frame_file = str(detections.iloc[0]["frame_file"])
     selected_frame_index = int(detections.iloc[0]["frame_index"])
@@ -168,6 +178,40 @@ def build_aoi_map(
         "output_map_path": str(output_map_path),
         "output_metadata_path": str(output_metadata_path),
     }
+
+
+def build_aoi_map(
+    detections_csv: str | Path,
+    frames_dir: str | Path,
+    output_map_path: str | Path,
+    output_metadata_path: str | Path,
+    video_name: str,
+    fps: int = 30,
+    frame_index: int | None = None,
+    frame_file: str | None = None,
+    include_labels: list[str] | None = None,
+    min_confidence: float = 0.35,
+    box_padding: int = 0,
+) -> dict[str, object]:
+    detections = load_and_filter_detections(
+        detections_csv=detections_csv,
+        include_labels=include_labels,
+        min_confidence=min_confidence,
+    )
+    selected_detections = select_frame_detections(
+        detections=detections,
+        frame_index=frame_index,
+        frame_file=frame_file,
+    )
+    return render_aoi_map_from_detections(
+        detections=selected_detections,
+        frames_dir=frames_dir,
+        output_map_path=output_map_path,
+        output_metadata_path=output_metadata_path,
+        video_name=video_name,
+        fps=fps,
+        box_padding=box_padding,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

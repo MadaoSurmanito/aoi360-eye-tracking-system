@@ -40,10 +40,16 @@ python python/offline/scripts/extract_frames.py --video-path data/input_videos/v
 python python/offline/scripts/detect_grounding_dino.py --frames-dir data/frames/video_360 --output-csv data/interim/detections/video_360_grounding_dino_boxes.csv --text-prompt "person. face. bottle. screen. product."
 ```
 
-### 3. Build an AOI map for Unity
+### 3. Build one AOI map for Unity
 
 ```bash
 python python/offline/scripts/build_aoi_map.py --detections-csv data/interim/detections/video_360_grounding_dino_boxes.csv --frames-dir data/frames/video_360 --output-map-path data/processed/id_maps/video_360_aoi_map.png --output-metadata-path data/processed/metadata/video_360_aoi_map_metadata.json --video-name video_360.mp4 --fps 30 --frame-index 0
+```
+
+### 4. Build AOI maps for every detected frame
+
+```bash
+python python/offline/scripts/build_aoi_sequence.py --detections-csv data/interim/detections/video_360_grounding_dino_boxes.csv --frames-dir data/frames/video_360 --output-maps-dir data/processed/id_maps/video_360 --output-metadata-dir data/processed/metadata/video_360 --manifest-path data/processed/metadata/video_360_aoi_sequence_manifest.json --video-name video_360.mp4 --fps 30
 ```
 
 ## Outputs
@@ -52,10 +58,13 @@ python python/offline/scripts/build_aoi_map.py --detections-csv data/interim/det
 - Detection CSV: `data/interim/detections/`
 - AOI maps: `data/processed/id_maps/`
 - AOI metadata: `data/processed/metadata/`
+- AOI sequence manifest: `data/processed/metadata/<video_name>_aoi_sequence_manifest.json`
 
 ## Unity handoff
 
-When a generated AOI map looks correct:
+### Current Unity runtime
+
+The current Unity Phase 0 runtime is ready for:
 
 1. copy the PNG into `unity/AOI360Runtime/Assets/Textures/AOIMaps`
 2. copy the metadata JSON into `unity/AOI360Runtime/Assets/StreamingAssets/AOIMaps`
@@ -65,3 +74,23 @@ When a generated AOI map looks correct:
    - Filter Mode = Point
    - Compression = None
    - sRGB = Off when possible
+
+### Future per-frame Unity runtime
+
+For per-frame AOI maps, the recommended handoff structure is:
+
+- PNG sequence staged under `Assets/StreamingAssets/AOIMaps/<video_name>/maps/`
+- metadata JSON sequence staged under `Assets/StreamingAssets/AOIMaps/<video_name>/metadata/`
+- one sequence manifest JSON under `Assets/StreamingAssets/AOIMaps/<video_name>/`
+
+Example PowerShell copy commands:
+
+```powershell
+New-Item -ItemType Directory -Force -Path unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\maps | Out-Null
+New-Item -ItemType Directory -Force -Path unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\metadata | Out-Null
+Copy-Item data\processed\id_maps\video_360\*.png unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\maps\
+Copy-Item data\processed\metadata\video_360\*.json unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\metadata\
+Copy-Item data\processed\metadata\video_360_aoi_sequence_manifest.json unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\
+```
+
+That per-frame layout is not yet consumed by the current Unity runtime, but it is the cleanest format for the next loader step keyed by `VideoPlayer.frame`.

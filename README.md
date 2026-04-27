@@ -126,6 +126,7 @@ The current offline branch supports a simple AOI authoring loop:
 1. extract sparse frames from `data/input_videos/video_360.mp4`
 2. run Grounding DINO over those frames
 3. export a Unity-compatible AOI map PNG plus metadata JSON
+4. optionally export a full per-frame AOI sequence plus manifest for future Unity runtime loading
 
 Reference commands and options live in:
 
