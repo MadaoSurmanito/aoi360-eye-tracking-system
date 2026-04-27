@@ -1,25 +1,193 @@
 from __future__ import annotations
 
 import argparse
+import math
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from aoi360_pipeline.aoi_map_builder import (
+    build_distinct_hex_color,
     load_and_filter_detections,
     render_aoi_map_from_detections,
 )
+
+
+@dataclass
+class TrackState:
+    track_id: int
+    label: str
+    prompt: str
+    color: str
+    name: str
+    first_frame_index: int
+    last_frame_index: int
+    last_bbox: tuple[float, float, float, float]
+    keyframe_count: int = 0
+
+
+def bbox_iou(box_a: tuple[float, float, float, float], box_b: tuple[float, float, float, float]) -> float:
+    ax_min, ay_min, ax_max, ay_max = box_a
+    bx_min, by_min, bx_max, by_max = box_b
+
+    inter_x_min = max(ax_min, bx_min)
+    inter_y_min = max(ay_min, by_min)
+    inter_x_max = min(ax_max, bx_max)
+    inter_y_max = min(ay_max, by_max)
+
+    inter_width = max(0.0, inter_x_max - inter_x_min)
+    inter_height = max(0.0, inter_y_max - inter_y_min)
+    intersection = inter_width * inter_height
+
+    area_a = max(0.0, ax_max - ax_min) * max(0.0, ay_max - ay_min)
+    area_b = max(0.0, bx_max - bx_min) * max(0.0, by_max - by_min)
+    union = area_a + area_b - intersection
+
+    if union <= 0.0:
+        return 0.0
+
+    return intersection / union
+
+
+def bbox_center_distance(box_a: tuple[float, float, float, float], box_b: tuple[float, float, float, float]) -> float:
+    ax_min, ay_min, ax_max, ay_max = box_a
+    bx_min, by_min, bx_max, by_max = box_b
+
+    center_a_x = (ax_min + ax_max) * 0.5
+    center_a_y = (ay_min + ay_max) * 0.5
+    center_b_x = (bx_min + bx_max) * 0.5
+    center_b_y = (by_min + by_max) * 0.5
+
+    return math.hypot(center_a_x - center_b_x, center_a_y - center_b_y)
+
+
+def associate_tracks(
+    frame_groups,
+    max_track_frame_gap: int,
+    min_track_iou: float,
+    max_track_center_distance_ratio: float,
+) -> tuple[list[dict[str, object]], dict[int, dict[str, object]]]:
+    active_tracks: dict[int, TrackState] = {}
+    definitions_by_id: dict[int, dict[str, object]] = {}
+    sequence_frames: list[dict[str, object]] = []
+    next_track_id = 1
+    image_diagonal = math.hypot(3840.0, 1920.0)
+    max_center_distance_px = image_diagonal * max_track_center_distance_ratio
+
+    for (frame_index, frame_file), frame_detections in frame_groups:
+        frame_index = int(frame_index)
+        frame_rows = frame_detections.sort_values(["confidence", "detection_index"], ascending=[False, True]).copy()
+        assigned_track_ids: set[int] = set()
+        frame_entries: list[dict[str, object]] = []
+
+        for row in frame_rows.itertuples(index=False):
+            label = str(row.label)
+            prompt = str(row.prompt)
+            bbox = (float(row.x_min), float(row.y_min), float(row.x_max), float(row.y_max))
+
+            best_track: TrackState | None = None
+            best_score: tuple[float, float, float] | None = None
+
+            for track in active_tracks.values():
+                if track.track_id in assigned_track_ids:
+                    continue
+                if track.label != label:
+                    continue
+
+                frame_gap = frame_index - track.last_frame_index
+                if frame_gap < 0 or frame_gap > max_track_frame_gap:
+                    continue
+
+                iou = bbox_iou(track.last_bbox, bbox)
+                center_distance = bbox_center_distance(track.last_bbox, bbox)
+
+                if iou < min_track_iou and center_distance > max_center_distance_px:
+                    continue
+
+                score = (iou, -center_distance, -frame_gap)
+                if best_score is None or score > best_score:
+                    best_track = track
+                    best_score = score
+
+            if best_track is None:
+                track_id = next_track_id
+                next_track_id += 1
+                color = build_distinct_hex_color(track_id)
+                best_track = TrackState(
+                    track_id=track_id,
+                    label=label,
+                    prompt=prompt,
+                    color=color,
+                    name=f"{label}_{track_id:02d}",
+                    first_frame_index=frame_index,
+                    last_frame_index=frame_index,
+                    last_bbox=bbox,
+                )
+                active_tracks[track_id] = best_track
+                definitions_by_id[track_id] = {
+                    "id": track_id,
+                    "name": best_track.name,
+                    "prompt": prompt,
+                    "category": label,
+                    "parentId": 0,
+                    "color": color,
+                    "firstFrameIndex": frame_index,
+                    "lastFrameIndex": frame_index,
+                    "keyframeCount": 0,
+                }
+
+            assigned_track_ids.add(best_track.track_id)
+            best_track.last_frame_index = frame_index
+            best_track.last_bbox = bbox
+            best_track.keyframe_count += 1
+
+            definition = definitions_by_id[best_track.track_id]
+            definition["lastFrameIndex"] = frame_index
+            definition["keyframeCount"] = int(definition["keyframeCount"]) + 1
+
+            frame_entries.append(
+                {
+                    "aoi_id": best_track.track_id,
+                    "aoi_name": best_track.name,
+                    "aoi_category": label,
+                    "aoi_prompt": prompt,
+                    "aoi_color": best_track.color,
+                    "frame_index": frame_index,
+                    "frame_file": str(frame_file),
+                    "detection_index": int(row.detection_index),
+                    "label": label,
+                    "confidence": float(row.confidence),
+                    "x_min": float(row.x_min),
+                    "y_min": float(row.y_min),
+                    "x_max": float(row.x_max),
+                    "y_max": float(row.y_max),
+                }
+            )
+
+        sequence_frames.append(
+            {
+                "frameIndex": frame_index,
+                "frameFile": str(frame_file),
+                "detections": frame_entries,
+            }
+        )
+
+    return sequence_frames, definitions_by_id
 
 
 def build_aoi_sequence(
     detections_csv: str | Path,
     frames_dir: str | Path,
     output_maps_dir: str | Path,
-    output_metadata_dir: str | Path,
+    output_keyframes_dir: str | Path,
     video_name: str,
     fps: int = 30,
     include_labels: list[str] | None = None,
     min_confidence: float = 0.35,
     box_padding: int = 0,
+    max_track_frame_gap: int = 20,
+    min_track_iou: float = 0.05,
+    max_track_center_distance_ratio: float = 0.08,
     max_frames: int | None = None,
     manifest_path: str | Path | None = None,
     skip_existing: bool = False,
@@ -31,43 +199,82 @@ def build_aoi_sequence(
     )
 
     output_maps_dir = Path(output_maps_dir)
-    output_metadata_dir = Path(output_metadata_dir)
+    output_keyframes_dir = Path(output_keyframes_dir)
     output_maps_dir.mkdir(parents=True, exist_ok=True)
-    output_metadata_dir.mkdir(parents=True, exist_ok=True)
+    output_keyframes_dir.mkdir(parents=True, exist_ok=True)
 
     frame_groups = list(detections.groupby(["frame_index", "frame_file"], sort=True))
     if max_frames is not None:
         frame_groups = frame_groups[: max(0, max_frames)]
 
+    sequence_frames, definitions_by_id = associate_tracks(
+        frame_groups=frame_groups,
+        max_track_frame_gap=max_track_frame_gap,
+        min_track_iou=min_track_iou,
+        max_track_center_distance_ratio=max_track_center_distance_ratio,
+    )
+
     manifest_entries: list[dict[str, object]] = []
     written_count = 0
+    id_map_resolution: list[int] | None = None
 
-    for (frame_index, frame_file), frame_detections in frame_groups:
-        frame_stem = Path(str(frame_file)).stem
+    for frame in sequence_frames:
+        frame_index = int(frame["frameIndex"])
+        frame_file = str(frame["frameFile"])
+        frame_stem = Path(frame_file).stem
         output_map_path = output_maps_dir / f"{frame_stem}_aoi_map.png"
-        output_metadata_path = output_metadata_dir / f"{frame_stem}_aoi_map_metadata.json"
+        output_keyframe_path = output_keyframes_dir / f"{frame_stem}_aoi_keyframe.json"
 
-        if skip_existing and output_map_path.exists() and output_metadata_path.exists():
+        if skip_existing and output_map_path.exists() and output_keyframe_path.exists():
             manifest_entries.append(
                 {
-                    "frameIndex": int(frame_index),
-                    "frameFile": str(frame_file),
+                    "frameIndex": frame_index,
+                    "frameFile": frame_file,
                     "mapFile": output_map_path.name,
-                    "metadataFile": output_metadata_path.name,
+                    "keyframeFile": output_keyframe_path.name,
                     "aoiCount": None,
                     "skipped": True,
                 }
             )
             continue
 
+        import pandas as pd
+
+        frame_detections = pd.DataFrame(frame["detections"])
         summary = render_aoi_map_from_detections(
-            detections=frame_detections.sort_values(["confidence", "detection_index"], ascending=[False, True]).reset_index(drop=True),
+            detections=frame_detections,
             frames_dir=frames_dir,
             output_map_path=output_map_path,
-            output_metadata_path=output_metadata_path,
+            output_metadata_path=None,
             video_name=video_name,
             fps=fps,
             box_padding=box_padding,
+            write_metadata_document=False,
+        )
+
+        if id_map_resolution is None:
+            id_map_resolution = [int(summary["image_width"]), int(summary["image_height"])]
+
+        output_keyframe_path.write_text(
+            json.dumps(
+                {
+                    "video": video_name,
+                    "frameIndex": int(summary["frame_index"]),
+                    "frameFile": summary["frame_file"],
+                    "mapFile": output_map_path.name,
+                    "aois": [
+                        {
+                            "id": int(aoi["id"]),
+                            "bbox": aoi["bbox"],
+                            "confidence": float(aoi["confidence"]),
+                            "sourceDetectionIndex": int(aoi["sourceDetectionIndex"]),
+                        }
+                        for aoi in summary["aois"]
+                    ],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
         )
 
         manifest_entries.append(
@@ -75,7 +282,7 @@ def build_aoi_sequence(
                 "frameIndex": int(summary["frame_index"]),
                 "frameFile": summary["frame_file"],
                 "mapFile": output_map_path.name,
-                "metadataFile": output_metadata_path.name,
+                "keyframeFile": output_keyframe_path.name,
                 "aoiCount": int(summary["aoi_count"]),
                 "skipped": False,
             }
@@ -85,8 +292,10 @@ def build_aoi_sequence(
     manifest = {
         "video": video_name,
         "fps": int(fps),
+        "idMapResolution": id_map_resolution or [],
         "mapsDirectory": str(output_maps_dir),
-        "metadataDirectory": str(output_metadata_dir),
+        "keyframesDirectory": str(output_keyframes_dir),
+        "aois": list(definitions_by_id.values()),
         "frameCount": len(manifest_entries),
         "writtenCount": written_count,
         "frames": manifest_entries,
@@ -122,7 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-metadata-dir",
         default="data/processed/metadata/video_360",
-        help="Directory where one AOI metadata JSON per frame will be written.",
+        help="Directory where one lightweight AOI keyframe JSON per frame will be written.",
     )
     parser.add_argument(
         "--manifest-path",
@@ -148,6 +357,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--min-confidence", type=float, default=0.35)
     parser.add_argument("--box-padding", type=int, default=0)
+    parser.add_argument("--max-track-frame-gap", type=int, default=20)
+    parser.add_argument("--min-track-iou", type=float, default=0.05)
+    parser.add_argument("--max-track-center-distance-ratio", type=float, default=0.08)
     parser.add_argument("--max-frames", type=int, default=None)
     parser.add_argument("--skip-existing", action="store_true")
     return parser
@@ -160,12 +372,15 @@ def main() -> None:
         detections_csv=args.detections_csv,
         frames_dir=args.frames_dir,
         output_maps_dir=args.output_maps_dir,
-        output_metadata_dir=args.output_metadata_dir,
+        output_keyframes_dir=args.output_metadata_dir,
         video_name=args.video_name,
         fps=args.fps,
         include_labels=args.include_labels,
         min_confidence=args.min_confidence,
         box_padding=args.box_padding,
+        max_track_frame_gap=args.max_track_frame_gap,
+        min_track_iou=args.min_track_iou,
+        max_track_center_distance_ratio=args.max_track_center_distance_ratio,
         max_frames=args.max_frames,
         manifest_path=args.manifest_path,
         skip_existing=args.skip_existing,
@@ -174,7 +389,7 @@ def main() -> None:
     print(f"Frames in manifest: {manifest['frameCount']}")
     print(f"Frames written now: {manifest['writtenCount']}")
     print(f"Maps directory: {manifest['mapsDirectory']}")
-    print(f"Metadata directory: {manifest['metadataDirectory']}")
+    print(f"Keyframes directory: {manifest['keyframesDirectory']}")
 
 
 if __name__ == "__main__":

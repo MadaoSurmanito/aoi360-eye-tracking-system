@@ -57,7 +57,7 @@ python python/offline/scripts/build_aoi_sequence.py --detections-csv data/interi
 - Extracted frames: `data/frames/<video_name>/`
 - Detection CSV: `data/interim/detections/`
 - AOI maps: `data/processed/id_maps/`
-- AOI metadata: `data/processed/metadata/`
+- AOI keyframes: `data/processed/metadata/`
 - AOI sequence manifest: `data/processed/metadata/<video_name>_aoi_sequence_manifest.json`
 
 ## Unity handoff
@@ -80,16 +80,22 @@ The current Unity Phase 0 runtime is ready for:
 For per-frame AOI maps, the recommended handoff structure is:
 
 - PNG sequence staged under `Assets/StreamingAssets/AOIMaps/<video_name>/maps/`
-- metadata JSON sequence staged under `Assets/StreamingAssets/AOIMaps/<video_name>/metadata/`
+- lightweight keyframe JSON sequence staged under `Assets/StreamingAssets/AOIMaps/<video_name>/keyframes/`
 - one sequence manifest JSON under `Assets/StreamingAssets/AOIMaps/<video_name>/`
+
+In this format:
+
+- AOI colors and semantic definitions are stored once in the manifest
+- each keyframe JSON only stores which AOI ids are present in that frame plus their boxes/confidence
+- each per-frame PNG uses the persistent color assigned to that AOI id across time
 
 Example PowerShell copy commands:
 
 ```powershell
 New-Item -ItemType Directory -Force -Path unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\maps | Out-Null
-New-Item -ItemType Directory -Force -Path unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\metadata | Out-Null
+New-Item -ItemType Directory -Force -Path unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\keyframes | Out-Null
 Copy-Item data\processed\id_maps\video_360\*.png unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\maps\
-Copy-Item data\processed\metadata\video_360\*.json unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\metadata\
+Copy-Item data\processed\metadata\video_360\*.json unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\keyframes\
 Copy-Item data\processed\metadata\video_360_aoi_sequence_manifest.json unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\
 ```
 

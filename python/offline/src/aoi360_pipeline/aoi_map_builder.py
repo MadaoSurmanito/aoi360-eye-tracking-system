@@ -38,6 +38,50 @@ def parse_label_filters(values: list[str] | None) -> set[str]:
     return {value.strip().lower() for value in values if value and value.strip()}
 
 
+def build_aoi_entries_from_detections(
+    detections: pd.DataFrame,
+    width: int,
+    height: int,
+    box_padding: int = 0,
+) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+
+    for local_aoi_id, row in enumerate(detections.itertuples(index=False), start=1):
+        row_label = getattr(row, "label", getattr(row, "aoi_category", "aoi"))
+        row_prompt = getattr(row, "aoi_prompt", getattr(row, "prompt", row_label))
+        assigned_aoi_id = int(getattr(row, "aoi_id", local_aoi_id))
+        color_hex = str(getattr(row, "aoi_color", build_distinct_hex_color(assigned_aoi_id)))
+        name = str(getattr(row, "aoi_name", f"{str(row_label)}_{assigned_aoi_id:02d}"))
+        category = str(getattr(row, "aoi_category", str(row_label)))
+        prompt = str(row_prompt)
+
+        red = int(color_hex[1:3], 16)
+        green = int(color_hex[3:5], 16)
+        blue = int(color_hex[5:7], 16)
+
+        x_min = max(0, int(round(float(row.x_min) - box_padding)))
+        y_min = max(0, int(round(float(row.y_min) - box_padding)))
+        x_max = min(width - 1, int(round(float(row.x_max) + box_padding)))
+        y_max = min(height - 1, int(round(float(row.y_max) + box_padding)))
+
+        entries.append(
+            {
+                "id": assigned_aoi_id,
+                "name": name,
+                "prompt": prompt,
+                "category": category,
+                "parentId": 0,
+                "color": color_hex,
+                "confidence": float(row.confidence),
+                "bbox": [x_min, y_min, x_max, y_max],
+                "sourceDetectionIndex": int(row.detection_index),
+                "fillRgb": (red, green, blue),
+            }
+        )
+
+    return entries
+
+
 def load_and_filter_detections(
     detections_csv: str | Path,
     include_labels: list[str] | None = None,
@@ -94,14 +138,16 @@ def render_aoi_map_from_detections(
     detections: pd.DataFrame,
     frames_dir: str | Path,
     output_map_path: str | Path,
-    output_metadata_path: str | Path,
+    output_metadata_path: str | Path | None,
     video_name: str,
     fps: int = 30,
     box_padding: int = 0,
+    write_metadata_document: bool = True,
 ) -> dict[str, object]:
     frames_dir = Path(frames_dir)
     output_map_path = Path(output_map_path)
-    output_metadata_path = Path(output_metadata_path)
+    if output_metadata_path is not None:
+        output_metadata_path = Path(output_metadata_path)
 
     if not frames_dir.exists():
         raise FileNotFoundError(f"Frames directory not found: {frames_dir}")
@@ -124,59 +170,75 @@ def render_aoi_map_from_detections(
     aoi_map = Image.new("RGB", (width, height), (0, 0, 0))
     drawer = ImageDraw.Draw(aoi_map)
 
-    aois: list[dict[str, object]] = []
-    for aoi_id, row in enumerate(detections.itertuples(index=False), start=1):
-        color_hex = build_distinct_hex_color(aoi_id)
-        red = int(color_hex[1:3], 16)
-        green = int(color_hex[3:5], 16)
-        blue = int(color_hex[5:7], 16)
+    aois = build_aoi_entries_from_detections(
+        detections=detections,
+        width=width,
+        height=height,
+        box_padding=box_padding,
+    )
 
-        x_min = max(0, int(round(float(row.x_min) - box_padding)))
-        y_min = max(0, int(round(float(row.y_min) - box_padding)))
-        x_max = min(width - 1, int(round(float(row.x_max) + box_padding)))
-        y_max = min(height - 1, int(round(float(row.y_max) + box_padding)))
+    for aoi in aois:
+        x_min, y_min, x_max, y_max = aoi["bbox"]
 
         # Phase 1 deliberately paints box AOIs as a bootstrap path. Once segmentation
         # lands, this fill step can be replaced by exact masks without changing the
         # Unity-side metadata contract.
-        drawer.rectangle([x_min, y_min, x_max, y_max], fill=(red, green, blue))
-
-        label = str(row.label)
-        detection_index = int(row.detection_index)
-        aois.append(
-            {
-                "id": aoi_id,
-                "name": f"{label}_{aoi_id:02d}",
-                "prompt": str(row.prompt),
-                "category": label,
-                "parentId": 0,
-                "color": color_hex,
-                "sourceDetectionIndex": detection_index,
-                "confidence": float(row.confidence),
-                "bbox": [x_min, y_min, x_max, y_max],
-            }
-        )
+        drawer.rectangle([x_min, y_min, x_max, y_max], fill=aoi["fillRgb"])
 
     output_map_path.parent.mkdir(parents=True, exist_ok=True)
-    output_metadata_path.parent.mkdir(parents=True, exist_ok=True)
     aoi_map.save(output_map_path)
 
-    metadata = {
-        "video": video_name,
-        "fps": int(fps),
-        "idMapResolution": [width, height],
-        "frameIndex": selected_frame_index,
-        "frameFile": selected_frame_file,
-        "aois": aois,
-    }
-    output_metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    if write_metadata_document:
+        if output_metadata_path is None:
+            raise ValueError("output_metadata_path is required when write_metadata_document=True")
+
+        output_metadata_path = Path(output_metadata_path)
+        output_metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata = {
+            "video": video_name,
+            "fps": int(fps),
+            "idMapResolution": [width, height],
+            "frameIndex": selected_frame_index,
+            "frameFile": selected_frame_file,
+            "aois": [
+                {
+                    "id": aoi["id"],
+                    "name": aoi["name"],
+                    "prompt": aoi["prompt"],
+                    "category": aoi["category"],
+                    "parentId": aoi["parentId"],
+                    "color": aoi["color"],
+                    "sourceDetectionIndex": aoi["sourceDetectionIndex"],
+                    "confidence": aoi["confidence"],
+                    "bbox": aoi["bbox"],
+                }
+                for aoi in aois
+            ],
+        }
+        output_metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     return {
         "frame_file": selected_frame_file,
         "frame_index": selected_frame_index,
         "aoi_count": len(aois),
         "output_map_path": str(output_map_path),
-        "output_metadata_path": str(output_metadata_path),
+        "output_metadata_path": str(output_metadata_path) if output_metadata_path is not None else "",
+        "image_width": width,
+        "image_height": height,
+        "aois": [
+            {
+                "id": aoi["id"],
+                "name": aoi["name"],
+                "prompt": aoi["prompt"],
+                "category": aoi["category"],
+                "parentId": aoi["parentId"],
+                "color": aoi["color"],
+                "sourceDetectionIndex": aoi["sourceDetectionIndex"],
+                "confidence": aoi["confidence"],
+                "bbox": aoi["bbox"],
+            }
+            for aoi in aois
+        ],
     }
 
 
