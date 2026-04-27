@@ -118,3 +118,15 @@ See the Phase 0 documentation for implementation details:
 - `docs/phase0/aoi-data-contract.md`
 - `docs/phase0/csv-schema.md`
 - `docs/phase0/validation-checklist.md`
+
+## Offline Python quick start
+
+The current offline branch supports a simple AOI authoring loop:
+
+1. extract sparse frames from `data/input_videos/video_360.mp4`
+2. run Grounding DINO over those frames
+3. export a Unity-compatible AOI map PNG plus metadata JSON
+
+Reference commands and options live in:
+
+- `python/offline/README.md`

@@ -34,17 +34,26 @@ MemoryCaptures/
 *.userprefs
 
 # Generated / heavy data
+data/input_videos/*
+data/frames/*
 data/raw/videos/*
 data/interim/*
+data/interim/detections/*
 data/processed/masks/*
 data/processed/id_maps/*
 data/processed/gaze_logs/*
+data/processed/metadata/*
 data/exports/*
 
 # Keep placeholders
+!data/input_videos/.gitkeep
+!data/frames/.gitkeep
 !data/raw/videos/.gitkeep
 !data/raw/reference-images/.gitkeep
 !data/interim/.gitkeep
+!data/interim/detections/
+!data/interim/detections/.gitkeep
 !data/processed/.gitkeep
+!data/processed/metadata/.gitkeep
 !data/exports/.gitkeep
 /unity/AOI360Runtime/Assets/StreamingAssets/Videos
