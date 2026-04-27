@@ -1,0 +1,9 @@
+accelerate
+numpy
+opencv-python
+pandas
+pillow
+torch
+torchvision
+tqdm
+transformers
