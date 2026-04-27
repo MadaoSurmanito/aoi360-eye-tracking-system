@@ -84,19 +84,24 @@ public static class SyncGeneratedAoiSequences
 
     private static string ResolveRepoRoot()
     {
-        string unityProjectRoot = Directory.GetParent(Application.dataPath)?.FullName;
-        if (string.IsNullOrWhiteSpace(unityProjectRoot))
+        DirectoryInfo currentDirectory = new DirectoryInfo(Application.dataPath);
+
+        while (currentDirectory != null)
         {
-            throw new InvalidOperationException("Could not resolve the Unity project root.");
+            bool hasDataDirectory = Directory.Exists(Path.Combine(currentDirectory.FullName, "data"));
+            bool hasUnityDirectory = Directory.Exists(Path.Combine(currentDirectory.FullName, "unity"));
+
+            if (hasDataDirectory && hasUnityDirectory)
+            {
+                return currentDirectory.FullName;
+            }
+
+            currentDirectory = currentDirectory.Parent;
         }
 
-        string repoRoot = Directory.GetParent(unityProjectRoot)?.FullName;
-        if (string.IsNullOrWhiteSpace(repoRoot))
-        {
-            throw new InvalidOperationException("Could not resolve the repository root.");
-        }
-
-        return repoRoot;
+        throw new InvalidOperationException(
+            $"Could not resolve the repository root from Application.dataPath='{Application.dataPath}'."
+        );
     }
 
     private static void PrepareDestinationDirectory(string destinationDirectory)
