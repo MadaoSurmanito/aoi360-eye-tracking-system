@@ -1638,7 +1638,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::AOI360.Runtime.Mapping.SphericalMapper
   gazeDirectionSource: {fileID: 189643246}
   allowFallbackToTransformSource: 1
-  yawOffsetDegrees: 270
+  yawOffsetDegrees: 0
   flipHorizontally: 0
   flipVertically: 0
   logValues: 1
