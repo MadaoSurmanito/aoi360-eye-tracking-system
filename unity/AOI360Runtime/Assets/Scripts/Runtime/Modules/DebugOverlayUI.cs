@@ -20,6 +20,9 @@ namespace AOI360.Runtime.Modules
 
         [Header("UI")]
         [SerializeField] private TextMeshProUGUI debugText;
+        [SerializeField] private float refreshIntervalSeconds = 0.1f;
+
+        private float nextRefreshTime;
 
         private void Update()
         {
@@ -27,6 +30,13 @@ namespace AOI360.Runtime.Modules
             {
                 return;
             }
+
+            if (Time.unscaledTime < nextRefreshTime)
+            {
+                return;
+            }
+
+            nextRefreshTime = Time.unscaledTime + Mathf.Max(0.02f, refreshIntervalSeconds);
 
             if (debugVisualizer == null)
             {

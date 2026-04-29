@@ -17,15 +17,16 @@ namespace AOI360.Runtime.Core
         [SerializeField] private float overlaySphereRadius = 4.98f;
         [SerializeField] private float overlayOpacity = 0.24f;
         [SerializeField] private float focusedOverlayOpacity = 0.6f;
+        [SerializeField] private float focusedColorTolerance = 0.0025f;
 
         private AOILookup aoiLookup;
         private SphericalMapper sphericalMapper;
         private Transform sphereCenter;
         private GameObject overlaySphere;
-        private Texture2D overlayTexture;
         private Material overlayMaterial;
         private int lastHighlightedAoiId = int.MinValue;
         private Texture2D lastOverlaySourceTexture;
+        private Color lastFocusedAoiColor = Color.clear;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrap()
@@ -55,7 +56,7 @@ namespace AOI360.Runtime.Core
 
             ResolveReferences();
             EnsureOverlaySphere();
-            RefreshOverlayTexture(forceRefresh: true);
+            RefreshOverlayMaterial(forceRefresh: true);
         }
 
         private void Update()
@@ -85,7 +86,7 @@ namespace AOI360.Runtime.Core
 
             if (currentSourceTexture != lastOverlaySourceTexture || aoiLookup.CurrentAOIId != lastHighlightedAoiId)
             {
-                RefreshOverlayTexture(forceRefresh: currentSourceTexture != lastOverlaySourceTexture);
+                RefreshOverlayMaterial(forceRefresh: currentSourceTexture != lastOverlaySourceTexture);
             }
         }
 
@@ -168,60 +169,27 @@ namespace AOI360.Runtime.Core
             }
         }
 
-        private void RefreshOverlayTexture(bool forceRefresh)
+        private void RefreshOverlayMaterial(bool forceRefresh)
         {
             Texture2D sourceTexture = aoiLookup != null ? aoiLookup.AOIMapTexture : null;
-            if (sourceTexture == null)
+            if (sourceTexture == null || overlayMaterial == null)
             {
-                return;
-            }
-
-            if (!sourceTexture.isReadable)
-            {
-                Debug.LogWarning(
-                    $"[Phase0Bootstrap] La textura AOI '{sourceTexture.name}' no es legible. " +
-                    "No se puede construir el overlay hasta corregir el import."
-                );
                 return;
             }
 
             int highlightedAoiId = aoiLookup.CurrentAOIId;
-            if (!forceRefresh && highlightedAoiId == lastHighlightedAoiId)
+            Color focusedAoiColor = highlightedAoiId > 0 ? aoiLookup.CurrentAOIColor : Color.clear;
+            if (!forceRefresh &&
+                highlightedAoiId == lastHighlightedAoiId &&
+                focusedAoiColor == lastFocusedAoiColor)
             {
                 return;
             }
 
             lastHighlightedAoiId = highlightedAoiId;
             lastOverlaySourceTexture = sourceTexture;
-
-            if (overlayTexture == null || overlayTexture.width != sourceTexture.width || overlayTexture.height != sourceTexture.height)
-            {
-                overlayTexture = new Texture2D(sourceTexture.width, sourceTexture.height, TextureFormat.RGBA32, false);
-                overlayTexture.name = "Runtime_AOIOverlayTexture";
-                overlayTexture.wrapMode = TextureWrapMode.Repeat;
-                overlayTexture.filterMode = FilterMode.Bilinear;
-            }
-
-            Color[] sourcePixels = sourceTexture.GetPixels();
-            Color[] overlayPixels = new Color[sourcePixels.Length];
-
-            for (int i = 0; i < sourcePixels.Length; i++)
-            {
-                Color sourcePixel = sourcePixels[i];
-                if (!aoiLookup.TryResolveAOIFromPixel(sourcePixel, out int aoiId, out Color overlayColor))
-                {
-                    overlayPixels[i] = new Color(0f, 0f, 0f, 0f);
-                    continue;
-                }
-
-                float alpha = aoiId == highlightedAoiId ? focusedOverlayOpacity : overlayOpacity;
-                overlayColor.a = alpha;
-                overlayPixels[i] = overlayColor;
-            }
-
-            overlayTexture.SetPixels(overlayPixels);
-            overlayTexture.Apply(false, false);
-            ConfigureTransparentMaterial(overlayMaterial, overlayTexture, Color.white);
+            lastFocusedAoiColor = focusedAoiColor;
+            ConfigureTransparentMaterial(overlayMaterial, sourceTexture, Color.white);
         }
 
         private Mesh CreateInvertedSphereMesh(Mesh sourceMesh)
@@ -297,6 +265,31 @@ namespace AOI360.Runtime.Core
             if (material.HasProperty("_FlipVertical"))
             {
                 material.SetFloat("_FlipVertical", sphericalMapper != null && sphericalMapper.FlipVertically ? 1f : 0f);
+            }
+
+            if (material.HasProperty("_BaseOpacity"))
+            {
+                material.SetFloat("_BaseOpacity", overlayOpacity);
+            }
+
+            if (material.HasProperty("_FocusedOpacity"))
+            {
+                material.SetFloat("_FocusedOpacity", focusedOverlayOpacity);
+            }
+
+            if (material.HasProperty("_FocusedAoiColor"))
+            {
+                material.SetColor("_FocusedAoiColor", aoiLookup != null && aoiLookup.CurrentAOIId > 0 ? aoiLookup.CurrentAOIColor : Color.clear);
+            }
+
+            if (material.HasProperty("_HasFocusedAoi"))
+            {
+                material.SetFloat("_HasFocusedAoi", aoiLookup != null && aoiLookup.CurrentAOIId > 0 ? 1f : 0f);
+            }
+
+            if (material.HasProperty("_FocusedColorTolerance"))
+            {
+                material.SetFloat("_FocusedColorTolerance", focusedColorTolerance);
             }
 
             if (material.HasProperty("_Surface"))

@@ -92,6 +92,10 @@ namespace AOI360.Runtime.AOI
         private bool metadataLoaded;
         private string runtimeMetadataJsonText;
         private string runtimeMetadataSource = "";
+        private Texture2D cachedPixelSourceTexture;
+        private Color32[] cachedPixels = Array.Empty<Color32>();
+        private int cachedTextureWidth;
+        private int cachedTextureHeight;
         private readonly List<int> neighborAOIIds = new();
         private readonly HashSet<int> neighborAOISet = new();
         private readonly Dictionary<uint, AoiDefinition> colorToDefinition = new();
@@ -126,15 +130,17 @@ namespace AOI360.Runtime.AOI
                 return;
             }
 
+            EnsurePixelCache();
+
             EnsureMetadataLoaded();
 
             Vector2 uv = sphericalMapper.CurrentUV;
             CurrentUV = uv;
 
-            int pixelX = Mathf.Clamp(Mathf.FloorToInt(uv.x * aoiMapTexture.width), 0, aoiMapTexture.width - 1);
-            int pixelY = Mathf.Clamp(Mathf.FloorToInt(uv.y * aoiMapTexture.height), 0, aoiMapTexture.height - 1);
+            int pixelX = Mathf.Clamp(Mathf.FloorToInt(uv.x * cachedTextureWidth), 0, cachedTextureWidth - 1);
+            int pixelY = Mathf.Clamp(Mathf.FloorToInt(uv.y * cachedTextureHeight), 0, cachedTextureHeight - 1);
 
-            Color pixel = aoiMapTexture.GetPixel(pixelX, pixelY);
+            Color32 pixel = GetCachedPixel(pixelX, pixelY);
             CurrentAOIColor = pixel;
 
             int aoiId = ResolveAOIIdFromColor(pixel);
@@ -152,7 +158,7 @@ namespace AOI360.Runtime.AOI
                 CurrentAOICategory = "";
             }
 
-            if (logAOIChanges && CurrentAOIId != lastLoggedAOIId)
+            if (Application.isEditor && logAOIChanges && CurrentAOIId != lastLoggedAOIId)
             {
                 string metadataSuffix = string.IsNullOrWhiteSpace(CurrentAOIName)
                     ? ""
@@ -165,7 +171,7 @@ namespace AOI360.Runtime.AOI
                 lastLoggedAOIId = CurrentAOIId;
             }
 
-            if (logContinuous && Time.frameCount % Mathf.Max(1, logEveryNFrames) == 0)
+            if (Application.isEditor && logContinuous && Time.frameCount % Mathf.Max(1, logEveryNFrames) == 0)
             {
                 Debug.Log(
                     $"[AOILookup] id={CurrentAOIId} | conf={CurrentAOIConfidence:F2} " +
@@ -217,6 +223,7 @@ namespace AOI360.Runtime.AOI
             aoiMapTexture = runtimeTexture;
             hasWarnedTextureNotReadable = false;
             lastLoggedAOIId = -1;
+            InvalidatePixelCache();
             ValidateTextureSettings();
         }
 
@@ -240,8 +247,11 @@ namespace AOI360.Runtime.AOI
 
         private int ResolveAOIIdFromColor(Color pixel)
         {
-            Color32 pixel32 = pixel;
+            return ResolveAOIIdFromColor((Color32)pixel);
+        }
 
+        private int ResolveAOIIdFromColor(Color32 pixel32)
+        {
             switch (encodingMode)
             {
                 case AoiEncodingMode.MetadataExactColor:
@@ -263,29 +273,29 @@ namespace AOI360.Runtime.AOI
                         hasWarnedMetadataMissing = true;
                     }
 
-                    return IsBlack(pixel32) ? 0 : 0;
+                    return 0;
 
                 case AoiEncodingMode.Grayscale8Bit:
-                    if (LooksGrayscale(pixel))
+                    if (LooksGrayscale(pixel32))
                     {
-                        return Mathf.Clamp(Mathf.RoundToInt(pixel.r * 255f), 0, 255);
+                        return Mathf.Clamp(Mathf.RoundToInt((pixel32.r / 255f) * 255f), 0, 255);
                     }
 
                     return 0;
 
                 case AoiEncodingMode.LegacyDominantRgb:
-                    return ResolveLegacyDominantRgb(pixel);
+                    return ResolveLegacyDominantRgb(pixel32);
 
                 default:
                     return 0;
             }
         }
 
-        private int ResolveLegacyDominantRgb(Color pixel)
+        private int ResolveLegacyDominantRgb(Color32 pixel)
         {
-            float r = pixel.r;
-            float g = pixel.g;
-            float b = pixel.b;
+            float r = pixel.r / 255f;
+            float g = pixel.g / 255f;
+            float b = pixel.b / 255f;
 
             if (r < 0.1f && g < 0.1f && b < 0.1f)
             {
@@ -349,9 +359,9 @@ namespace AOI360.Runtime.AOI
                     sampleUv = new Vector2(Mathf.Repeat(uv.x + offsetU, 1f), Mathf.Clamp01(uv.y + offsetV));
                 }
 
-                int sampleX = Mathf.Clamp(Mathf.FloorToInt(sampleUv.x * aoiMapTexture.width), 0, aoiMapTexture.width - 1);
-                int sampleY = Mathf.Clamp(Mathf.FloorToInt(sampleUv.y * aoiMapTexture.height), 0, aoiMapTexture.height - 1);
-                int sampleAoiId = ResolveAOIIdFromColor(aoiMapTexture.GetPixel(sampleX, sampleY));
+                int sampleX = Mathf.Clamp(Mathf.FloorToInt(sampleUv.x * cachedTextureWidth), 0, cachedTextureWidth - 1);
+                int sampleY = Mathf.Clamp(Mathf.FloorToInt(sampleUv.y * cachedTextureHeight), 0, cachedTextureHeight - 1);
+                int sampleAoiId = ResolveAOIIdFromColor(GetCachedPixel(sampleX, sampleY));
 
                 if (sampleAoiId == centerAoiId)
                 {
@@ -481,6 +491,44 @@ namespace AOI360.Runtime.AOI
             return false;
         }
 
+        private void EnsurePixelCache()
+        {
+            if (aoiMapTexture == null || !aoiMapTexture.isReadable)
+            {
+                return;
+            }
+
+            if (cachedPixelSourceTexture == aoiMapTexture &&
+                cachedPixels.Length == aoiMapTexture.width * aoiMapTexture.height)
+            {
+                return;
+            }
+
+            cachedPixels = aoiMapTexture.GetPixels32();
+            cachedTextureWidth = aoiMapTexture.width;
+            cachedTextureHeight = aoiMapTexture.height;
+            cachedPixelSourceTexture = aoiMapTexture;
+        }
+
+        private void InvalidatePixelCache()
+        {
+            cachedPixelSourceTexture = null;
+            cachedPixels = Array.Empty<Color32>();
+            cachedTextureWidth = 0;
+            cachedTextureHeight = 0;
+        }
+
+        private Color32 GetCachedPixel(int x, int y)
+        {
+            int index = y * cachedTextureWidth + x;
+            if (index < 0 || index >= cachedPixels.Length)
+            {
+                return new Color32(0, 0, 0, 255);
+            }
+
+            return cachedPixels[index];
+        }
+
         private void ValidateTextureSettings()
         {
             if (aoiMapTexture == null)
@@ -565,6 +613,12 @@ namespace AOI360.Runtime.AOI
         {
             return Mathf.Abs(pixel.r - pixel.g) < grayscaleTolerance &&
                    Mathf.Abs(pixel.g - pixel.b) < grayscaleTolerance;
+        }
+
+        private bool LooksGrayscale(Color32 pixel)
+        {
+            return Mathf.Abs(pixel.r - pixel.g) <= grayscaleTolerance * 255f &&
+                   Mathf.Abs(pixel.g - pixel.b) <= grayscaleTolerance * 255f;
         }
 
         private bool IsBlack(Color32 pixel)

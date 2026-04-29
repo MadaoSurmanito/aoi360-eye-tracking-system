@@ -4,9 +4,14 @@ Shader "AOI360/Equirectangular Overlay"
     {
         _BaseMap("Overlay Texture", 2D) = "black" {}
         _BaseColor("Tint", Color) = (1,1,1,1)
+        _FocusedAoiColor("Focused AOI Color", Color) = (0,0,0,0)
         _YawOffsetDegrees("Yaw Offset Degrees", Float) = 0
         _FlipHorizontal("Flip Horizontal", Float) = 0
         _FlipVertical("Flip Vertical", Float) = 0
+        _BaseOpacity("Base Opacity", Float) = 0.12
+        _FocusedOpacity("Focused Opacity", Float) = 0.4
+        _HasFocusedAoi("Has Focused AOI", Float) = 0
+        _FocusedColorTolerance("Focused Color Tolerance", Float) = 0.0025
     }
 
     SubShader
@@ -49,9 +54,14 @@ Shader "AOI360/Equirectangular Overlay"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseColor;
+                float4 _FocusedAoiColor;
                 float _YawOffsetDegrees;
                 float _FlipHorizontal;
                 float _FlipVertical;
+                float _BaseOpacity;
+                float _FocusedOpacity;
+                float _HasFocusedAoi;
+                float _FocusedColorTolerance;
             CBUFFER_END
 
             Varyings Vert(Attributes input)
@@ -82,7 +92,17 @@ Shader "AOI360/Equirectangular Overlay"
                 }
 
                 half4 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, float2(u, v));
-                color *= _BaseColor;
+                if (all(color.rgb <= half3(0.001, 0.001, 0.001)))
+                {
+                    return half4(0, 0, 0, 0);
+                }
+
+                float maxChannelDelta = max(max(abs(color.r - _FocusedAoiColor.r), abs(color.g - _FocusedAoiColor.g)), abs(color.b - _FocusedAoiColor.b));
+                float isFocused = (_HasFocusedAoi > 0.5 && maxChannelDelta <= _FocusedColorTolerance) ? 1.0 : 0.0;
+                float alpha = lerp(_BaseOpacity, _FocusedOpacity, isFocused);
+
+                color.rgb *= _BaseColor.rgb;
+                color.a = alpha * _BaseColor.a;
                 return color;
             }
             ENDHLSL

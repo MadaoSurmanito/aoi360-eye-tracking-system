@@ -64,6 +64,8 @@ Phase 0 currently includes:
 - visible fixation hit marker plus a capped trail of previous fixations
 - CSV export of fixation events, AOI hits, and pupil diameters when HTC eye tracker data is available
 - runtime debug UI showing AOI state, tracking source, and pupil data
+- per-frame AOI sequence loading from `StreamingAssets`, reset-safe loop handling, and projection alignment through baked offline yaw offsets
+- runtime performance tuning for standalone VR through lighter AOI maps, preloading, cached AOI pixel lookup, and frame-drop-friendly video playback
 
 ## AOI map contract
 
@@ -126,7 +128,8 @@ The current offline branch supports a simple AOI authoring loop:
 1. extract sparse frames from `data/input_videos/video_360.mp4`
 2. run Grounding DINO over those frames
 3. export a Unity-compatible AOI map PNG plus metadata JSON
-4. optionally export a full per-frame AOI sequence plus manifest for future Unity runtime loading
+4. optionally export a full per-frame AOI sequence plus manifest for Unity runtime loading
+5. rebuild the full runtime-ready asset set in one command or from the preprocessing GUI
 
 Reference commands and options live in:
 

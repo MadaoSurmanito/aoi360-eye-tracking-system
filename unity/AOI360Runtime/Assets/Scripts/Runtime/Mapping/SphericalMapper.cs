@@ -67,7 +67,7 @@ namespace AOI360.Runtime.Mapping
             CurrentUV = new Vector2(Mathf.Repeat(u, 1f), Mathf.Clamp01(v));
             HasValidDirection = true;
 
-            if (logValues && Time.frameCount % Mathf.Max(1, logEveryNFrames) == 0)
+            if (Application.isEditor && logValues && Time.frameCount % Mathf.Max(1, logEveryNFrames) == 0)
             {
                 Debug.Log(
                     $"[SphericalMapper] dir={CurrentDirection} | az={CurrentAzimuthRad:F3} rad | " +
@@ -91,6 +91,13 @@ namespace AOI360.Runtime.Mapping
 
             externalGazeDirection = direction.normalized;
             hasExternalGazeDirection = true;
+        }
+
+        public void SetProjectionCalibration(float yawDegrees, bool horizontalFlip, bool verticalFlip)
+        {
+            yawOffsetDegrees = yawDegrees;
+            flipHorizontally = horizontalFlip;
+            flipVertically = verticalFlip;
         }
 
         public void ClearExternalGazeDirection()

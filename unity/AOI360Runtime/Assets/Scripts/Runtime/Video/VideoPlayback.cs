@@ -20,6 +20,9 @@ namespace AOI360.Runtime.Video
         [Header("Debug")]
         [SerializeField] private bool logVideoEvents = true;
 
+        [Header("Performance")]
+        [SerializeField] private bool allowFrameDrop = true;
+
         private VideoPlayer videoPlayer;
         private bool isPrepared = false;
 
@@ -46,8 +49,8 @@ namespace AOI360.Runtime.Video
             videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
 
             // Importante para fases posteriores: sincronización por frame mostrado
-            videoPlayer.sendFrameReadyEvents = true;
-            videoPlayer.skipOnDrop = false;
+            videoPlayer.sendFrameReadyEvents = false;
+            videoPlayer.skipOnDrop = allowFrameDrop;
             videoPlayer.waitForFirstFrame = true;
 
             videoPlayer.prepareCompleted += HandlePrepareCompleted;
@@ -76,7 +79,7 @@ namespace AOI360.Runtime.Video
             videoPlayer.source = VideoSource.Url;
             videoPlayer.url = videoPath;
 
-            if (logVideoEvents)
+            if (Application.isEditor && logVideoEvents)
             {
                 Debug.Log($"[VideoPlayback] Preparando vídeo desde: {videoPath}");
             }
@@ -93,7 +96,7 @@ namespace AOI360.Runtime.Video
             {
                 videoPlayer.Play();
 
-                if (logVideoEvents)
+                if (Application.isEditor && logVideoEvents)
                 {
                     Debug.Log("[VideoPlayback] Reproducción iniciada.");
                 }
@@ -116,7 +119,7 @@ namespace AOI360.Runtime.Video
         {
             isPrepared = true;
 
-            if (logVideoEvents)
+            if (Application.isEditor && logVideoEvents)
             {
                 Debug.Log("[VideoPlayback] Vídeo preparado correctamente.");
             }
@@ -129,7 +132,7 @@ namespace AOI360.Runtime.Video
 
         private void HandleLoopPointReached(VideoPlayer source)
         {
-            if (logVideoEvents)
+            if (Application.isEditor && logVideoEvents)
             {
                 Debug.Log("[VideoPlayback] El vídeo ha llegado al final y continuará en loop.");
             }
