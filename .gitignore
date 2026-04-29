@@ -59,3 +59,4 @@ data/exports/*
 !data/exports/.gitkeep
 /unity/AOI360Runtime/Assets/StreamingAssets/Videos
 /unity/AOI360Runtime/Assets/StreamingAssets/AOIMaps/Sequences/
+/unity/AOI360Runtime/Assets/StreamingAssets/AOIMaps/Sequences.meta

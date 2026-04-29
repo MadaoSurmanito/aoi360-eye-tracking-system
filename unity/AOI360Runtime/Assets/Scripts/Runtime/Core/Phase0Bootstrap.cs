@@ -1,4 +1,5 @@
 using AOI360.Runtime.AOI;
+using AOI360.Runtime.Mapping;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
@@ -18,6 +19,7 @@ namespace AOI360.Runtime.Core
         [SerializeField] private float focusedOverlayOpacity = 0.6f;
 
         private AOILookup aoiLookup;
+        private SphericalMapper sphericalMapper;
         private Transform sphereCenter;
         private GameObject overlaySphere;
         private Texture2D overlayTexture;
@@ -92,6 +94,11 @@ namespace AOI360.Runtime.Core
             if (aoiLookup == null)
             {
                 aoiLookup = FindFirstObjectByType<AOILookup>();
+            }
+
+            if (sphericalMapper == null)
+            {
+                sphericalMapper = FindFirstObjectByType<SphericalMapper>();
             }
 
             if (sphereCenter == null)
@@ -247,7 +254,13 @@ namespace AOI360.Runtime.Core
 
         private Shader ResolveTransparentShader()
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            Shader shader = Shader.Find("AOI360/Equirectangular Overlay");
+            if (shader != null)
+            {
+                return shader;
+            }
+
+            shader = Shader.Find("Universal Render Pipeline/Unlit");
             if (shader != null)
             {
                 return shader;
@@ -269,6 +282,21 @@ namespace AOI360.Runtime.Core
             if (material.HasProperty("_BaseColor"))
             {
                 material.SetColor("_BaseColor", color);
+            }
+
+            if (material.HasProperty("_YawOffsetDegrees"))
+            {
+                material.SetFloat("_YawOffsetDegrees", sphericalMapper != null ? sphericalMapper.YawOffsetDegrees : 0f);
+            }
+
+            if (material.HasProperty("_FlipHorizontal"))
+            {
+                material.SetFloat("_FlipHorizontal", sphericalMapper != null && sphericalMapper.FlipHorizontally ? 1f : 0f);
+            }
+
+            if (material.HasProperty("_FlipVertical"))
+            {
+                material.SetFloat("_FlipVertical", sphericalMapper != null && sphericalMapper.FlipVertically ? 1f : 0f);
             }
 
             if (material.HasProperty("_Surface"))

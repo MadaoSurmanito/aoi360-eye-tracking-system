@@ -107,6 +107,7 @@ namespace AOI360.Runtime.AOI
         private Texture2D runtimeAoiTexture;
         private FrameEntryDocument currentFrameEntry;
         private KeyframeDocument currentKeyframe;
+        private long lastObservedVideoFrame = -1;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureLoader()
@@ -154,6 +155,13 @@ namespace AOI360.Runtime.AOI
             {
                 return;
             }
+
+            if (lastObservedVideoFrame >= 0 && currentVideoFrame < lastObservedVideoFrame)
+            {
+                HandleVideoLoopOrSeek(currentVideoFrame);
+            }
+
+            lastObservedVideoFrame = currentVideoFrame;
 
             FrameEntryDocument targetEntry = FindFrameEntryForVideoFrame((int)currentVideoFrame);
             if (targetEntry == null || targetEntry == currentFrameEntry)
@@ -359,6 +367,24 @@ namespace AOI360.Runtime.AOI
             {
                 Debug.LogWarning($"[AOISequenceRuntimeLoader] Could not parse keyframe JSON '{keyframePath}': {exception.Message}");
                 return null;
+            }
+        }
+
+        private void HandleVideoLoopOrSeek(long currentVideoFrame)
+        {
+            currentFrameEntry = null;
+            currentKeyframe = null;
+            CurrentKeyframeFrameIndex = -1;
+            CurrentMapFile = "";
+            CurrentKeyframeFile = "";
+            CurrentKeyframeAoiCount = 0;
+
+            if (logSequenceEvents)
+            {
+                Debug.Log(
+                    $"[AOISequenceRuntimeLoader] Video frame moved backwards ({lastObservedVideoFrame} -> {currentVideoFrame}). " +
+                    "Resetting AOI sequence state so the correct keyframe can be reloaded."
+                );
             }
         }
 

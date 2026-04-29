@@ -10,6 +10,11 @@ namespace AOI360.Runtime.Mapping
         [Header("Fallback")]
         [SerializeField] private bool allowFallbackToTransformSource = true;
 
+        [Header("Projection Calibration")]
+        [SerializeField] private float yawOffsetDegrees = 0f;
+        [SerializeField] private bool flipHorizontally = false;
+        [SerializeField] private bool flipVertically = false;
+
         [Header("Debug")]
         [SerializeField] private bool logValues = true;
         [SerializeField] private int logEveryNFrames = 30;
@@ -22,6 +27,9 @@ namespace AOI360.Runtime.Mapping
         public float CurrentAzimuthRad { get; private set; }
         public float CurrentElevationRad { get; private set; }
         public Vector2 CurrentUV { get; private set; }
+        public float YawOffsetDegrees => yawOffsetDegrees;
+        public bool FlipHorizontally => flipHorizontally;
+        public bool FlipVertically => flipVertically;
 
         private void Update()
         {
@@ -42,6 +50,17 @@ namespace AOI360.Runtime.Mapping
             // Conversión a UV equirectangular
             float u = (azimuth + Mathf.PI) / (2f * Mathf.PI);
             float v = 0.5f - (elevation / Mathf.PI);
+
+            u = Mathf.Repeat(u + (yawOffsetDegrees / 360f), 1f);
+            if (flipHorizontally)
+            {
+                u = 1f - u;
+            }
+
+            if (flipVertically)
+            {
+                v = 1f - v;
+            }
 
             CurrentAzimuthRad = azimuth;
             CurrentElevationRad = elevation;
