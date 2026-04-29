@@ -3,14 +3,21 @@ from __future__ import annotations
 import argparse
 import math
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from PIL import Image
 
 from aoi360_pipeline.aoi_map_builder import (
     build_distinct_hex_color,
     load_and_filter_detections,
     render_aoi_map_from_detections,
 )
+
+
+ProgressCallback = Callable[[int, int, str], None]
+LogCallback = Callable[[str], None]
 
 
 @dataclass
@@ -24,6 +31,36 @@ class TrackState:
     last_frame_index: int
     last_bbox: tuple[float, float, float, float]
     keyframe_count: int = 0
+
+
+def _emit_log(log_callback: LogCallback | None, message: str) -> None:
+    if log_callback is not None:
+        log_callback(message)
+    else:
+        print(message)
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    current: int,
+    total: int,
+    message: str,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(current, total, message)
+
+
+def infer_reference_frame_size(frame_groups, frames_dir: str | Path) -> tuple[int, int]:
+    if not frame_groups:
+        return 3840, 1920
+
+    first_frame_file = str(frame_groups[0][0][1])
+    first_frame_path = Path(frames_dir) / first_frame_file
+    if not first_frame_path.exists():
+        return 3840, 1920
+
+    with Image.open(first_frame_path) as frame_image:
+        return frame_image.size
 
 
 def bbox_iou(box_a: tuple[float, float, float, float], box_b: tuple[float, float, float, float]) -> float:
@@ -66,12 +103,14 @@ def associate_tracks(
     max_track_frame_gap: int,
     min_track_iou: float,
     max_track_center_distance_ratio: float,
+    reference_width: int,
+    reference_height: int,
 ) -> tuple[list[dict[str, object]], dict[int, dict[str, object]]]:
     active_tracks: dict[int, TrackState] = {}
     definitions_by_id: dict[int, dict[str, object]] = {}
     sequence_frames: list[dict[str, object]] = []
     next_track_id = 1
-    image_diagonal = math.hypot(3840.0, 1920.0)
+    image_diagonal = math.hypot(float(reference_width), float(reference_height))
     max_center_distance_px = image_diagonal * max_track_center_distance_ratio
 
     for (frame_index, frame_file), frame_detections in frame_groups:
@@ -191,6 +230,12 @@ def build_aoi_sequence(
     max_frames: int | None = None,
     manifest_path: str | Path | None = None,
     skip_existing: bool = False,
+    frame_step: int | None = None,
+    output_width: int | None = None,
+    output_height: int | None = None,
+    yaw_offset_degrees: float = 0.0,
+    progress_callback: ProgressCallback | None = None,
+    log_callback: LogCallback | None = None,
 ) -> dict[str, object]:
     detections = load_and_filter_detections(
         detections_csv=detections_csv,
@@ -204,21 +249,58 @@ def build_aoi_sequence(
     output_keyframes_dir.mkdir(parents=True, exist_ok=True)
 
     frame_groups = list(detections.groupby(["frame_index", "frame_file"], sort=True))
+    original_frame_group_count = len(frame_groups)
     if max_frames is not None:
         frame_groups = frame_groups[: max(0, max_frames)]
+    if frame_step is not None and frame_step > 0:
+        frame_groups = [
+            frame_group
+            for frame_group in frame_groups
+            if int(frame_group[0][0]) % frame_step == 0
+        ]
+
+    if not frame_groups:
+        raise RuntimeError("No frame groups remain after applying the current sequence filters.")
+
+    reference_width, reference_height = infer_reference_frame_size(frame_groups, frames_dir)
+    _emit_log(
+        log_callback,
+        (
+            "[build_aoi_sequence] Building AOI sequence with "
+            f"{len(frame_groups)} keyframes out of {original_frame_group_count} detected frame groups "
+            f"at {reference_width}x{reference_height} source resolution."
+        ),
+    )
+    _emit_log(
+        log_callback,
+        (
+            "[build_aoi_sequence] Runtime export settings: "
+            f"{output_width or reference_width}x{output_height or reference_height}, "
+            f"yaw offset {yaw_offset_degrees} degrees."
+        ),
+    )
+    if frame_step is not None and frame_step > 0:
+        _emit_log(
+            log_callback,
+            f"[build_aoi_sequence] Keeping only absolute video frames that match the step {frame_step}.",
+        )
 
     sequence_frames, definitions_by_id = associate_tracks(
         frame_groups=frame_groups,
         max_track_frame_gap=max_track_frame_gap,
         min_track_iou=min_track_iou,
         max_track_center_distance_ratio=max_track_center_distance_ratio,
+        reference_width=reference_width,
+        reference_height=reference_height,
     )
 
     manifest_entries: list[dict[str, object]] = []
     written_count = 0
     id_map_resolution: list[int] | None = None
+    total_frames = len(sequence_frames)
+    _emit_progress(progress_callback, 0, total_frames, "Preparing AOI keyframes.")
 
-    for frame in sequence_frames:
+    for processed_index, frame in enumerate(sequence_frames, start=1):
         frame_index = int(frame["frameIndex"])
         frame_file = str(frame["frameFile"])
         frame_stem = Path(frame_file).stem
@@ -236,6 +318,12 @@ def build_aoi_sequence(
                     "skipped": True,
                 }
             )
+            _emit_progress(
+                progress_callback,
+                processed_index,
+                total_frames,
+                f"Skipped existing AOI outputs for {frame_file}.",
+            )
             continue
 
         import pandas as pd
@@ -250,6 +338,9 @@ def build_aoi_sequence(
             fps=fps,
             box_padding=box_padding,
             write_metadata_document=False,
+            output_width=output_width,
+            output_height=output_height,
+            yaw_offset_degrees=yaw_offset_degrees,
         )
 
         if id_map_resolution is None:
@@ -288,16 +379,25 @@ def build_aoi_sequence(
             }
         )
         written_count += 1
+        _emit_progress(
+            progress_callback,
+            processed_index,
+            total_frames,
+            f"Wrote AOI keyframe {frame_file} with {summary['aoi_count']} AOIs.",
+        )
 
     manifest = {
         "video": video_name,
         "fps": int(fps),
+        "sourceFrameResolution": [reference_width, reference_height],
         "idMapResolution": id_map_resolution or [],
+        "frameStep": int(frame_step) if frame_step is not None else None,
         "mapsDirectory": str(output_maps_dir),
         "keyframesDirectory": str(output_keyframes_dir),
         "aois": list(definitions_by_id.values()),
         "frameCount": len(manifest_entries),
         "writtenCount": written_count,
+        "bakedYawOffsetDegrees": float(yaw_offset_degrees),
         "frames": manifest_entries,
     }
 
@@ -305,6 +405,14 @@ def build_aoi_sequence(
         manifest_path = Path(manifest_path)
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    _emit_log(
+        log_callback,
+        (
+            "[build_aoi_sequence] Completed sequence export with "
+            f"{len(definitions_by_id)} persistent AOIs across {len(manifest_entries)} keyframes."
+        ),
+    )
 
     return manifest
 
@@ -362,6 +470,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-track-center-distance-ratio", type=float, default=0.08)
     parser.add_argument("--max-frames", type=int, default=None)
     parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument(
+        "--frame-step",
+        type=int,
+        default=None,
+        help="Optional absolute video-frame step for exported AOI keyframes, e.g. 30 keeps only frame 0,30,60...",
+    )
+    parser.add_argument(
+        "--output-width",
+        type=int,
+        default=None,
+        help="Optional output AOI map width for runtime-friendly exports.",
+    )
+    parser.add_argument(
+        "--output-height",
+        type=int,
+        default=None,
+        help="Optional output AOI map height for runtime-friendly exports.",
+    )
+    parser.add_argument(
+        "--yaw-offset-degrees",
+        type=float,
+        default=0.0,
+        help="Bake a horizontal equirectangular yaw offset into every exported AOI map.",
+    )
     return parser
 
 
@@ -384,6 +516,10 @@ def main() -> None:
         max_frames=args.max_frames,
         manifest_path=args.manifest_path,
         skip_existing=args.skip_existing,
+        frame_step=args.frame_step,
+        output_width=args.output_width,
+        output_height=args.output_height,
+        yaw_offset_degrees=args.yaw_offset_degrees,
     )
 
     print(f"Frames in manifest: {manifest['frameCount']}")

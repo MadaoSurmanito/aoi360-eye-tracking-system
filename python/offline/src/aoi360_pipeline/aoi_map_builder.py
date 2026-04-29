@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 
 REQUIRED_DETECTION_COLUMNS = {
@@ -43,8 +43,14 @@ def build_aoi_entries_from_detections(
     width: int,
     height: int,
     box_padding: int = 0,
+    source_width: int | None = None,
+    source_height: int | None = None,
 ) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
+    source_width = int(source_width or width)
+    source_height = int(source_height or height)
+    scale_x = width / max(1, source_width)
+    scale_y = height / max(1, source_height)
 
     for local_aoi_id, row in enumerate(detections.itertuples(index=False), start=1):
         row_label = getattr(row, "label", getattr(row, "aoi_category", "aoi"))
@@ -59,10 +65,10 @@ def build_aoi_entries_from_detections(
         green = int(color_hex[3:5], 16)
         blue = int(color_hex[5:7], 16)
 
-        x_min = max(0, int(round(float(row.x_min) - box_padding)))
-        y_min = max(0, int(round(float(row.y_min) - box_padding)))
-        x_max = min(width - 1, int(round(float(row.x_max) + box_padding)))
-        y_max = min(height - 1, int(round(float(row.y_max) + box_padding)))
+        x_min = max(0, int(round((float(row.x_min) - box_padding) * scale_x)))
+        y_min = max(0, int(round((float(row.y_min) - box_padding) * scale_y)))
+        x_max = min(width - 1, int(round((float(row.x_max) + box_padding) * scale_x)))
+        y_max = min(height - 1, int(round((float(row.y_max) + box_padding) * scale_y)))
 
         entries.append(
             {
@@ -143,6 +149,9 @@ def render_aoi_map_from_detections(
     fps: int = 30,
     box_padding: int = 0,
     write_metadata_document: bool = True,
+    output_width: int | None = None,
+    output_height: int | None = None,
+    yaw_offset_degrees: float = 0.0,
 ) -> dict[str, object]:
     frames_dir = Path(frames_dir)
     output_map_path = Path(output_map_path)
@@ -164,8 +173,14 @@ def render_aoi_map_from_detections(
     if not selected_frame_path.exists():
         raise FileNotFoundError(f"Frame image referenced by detections was not found: {selected_frame_path}")
 
-    frame_image = Image.open(selected_frame_path).convert("RGB")
-    width, height = frame_image.size
+    with Image.open(selected_frame_path) as frame_image:
+        source_width, source_height = frame_image.size
+
+    width = int(output_width or source_width)
+    height = int(output_height or source_height)
+
+    if width <= 0 or height <= 0:
+        raise ValueError("output_width and output_height must be > 0 when provided")
 
     aoi_map = Image.new("RGB", (width, height), (0, 0, 0))
     drawer = ImageDraw.Draw(aoi_map)
@@ -175,6 +190,8 @@ def render_aoi_map_from_detections(
         width=width,
         height=height,
         box_padding=box_padding,
+        source_width=source_width,
+        source_height=source_height,
     )
 
     for aoi in aois:
@@ -184,6 +201,11 @@ def render_aoi_map_from_detections(
         # lands, this fill step can be replaced by exact masks without changing the
         # Unity-side metadata contract.
         drawer.rectangle([x_min, y_min, x_max, y_max], fill=aoi["fillRgb"])
+
+    if abs(yaw_offset_degrees) > 0.0001:
+        horizontal_pixel_offset = int(round((yaw_offset_degrees / 360.0) * width)) % width
+        if horizontal_pixel_offset != 0:
+            aoi_map = ImageChops.offset(aoi_map, horizontal_pixel_offset, 0)
 
     output_map_path.parent.mkdir(parents=True, exist_ok=True)
     aoi_map.save(output_map_path)
@@ -198,6 +220,8 @@ def render_aoi_map_from_detections(
             "video": video_name,
             "fps": int(fps),
             "idMapResolution": [width, height],
+            "sourceFrameResolution": [source_width, source_height],
+            "bakedYawOffsetDegrees": float(yaw_offset_degrees),
             "frameIndex": selected_frame_index,
             "frameFile": selected_frame_file,
             "aois": [
@@ -225,6 +249,9 @@ def render_aoi_map_from_detections(
         "output_metadata_path": str(output_metadata_path) if output_metadata_path is not None else "",
         "image_width": width,
         "image_height": height,
+        "source_image_width": source_width,
+        "source_image_height": source_height,
+        "baked_yaw_offset_degrees": float(yaw_offset_degrees),
         "aois": [
             {
                 "id": aoi["id"],
@@ -254,6 +281,9 @@ def build_aoi_map(
     include_labels: list[str] | None = None,
     min_confidence: float = 0.35,
     box_padding: int = 0,
+    output_width: int | None = None,
+    output_height: int | None = None,
+    yaw_offset_degrees: float = 0.0,
 ) -> dict[str, object]:
     detections = load_and_filter_detections(
         detections_csv=detections_csv,
@@ -273,6 +303,9 @@ def build_aoi_map(
         video_name=video_name,
         fps=fps,
         box_padding=box_padding,
+        output_width=output_width,
+        output_height=output_height,
+        yaw_offset_degrees=yaw_offset_degrees,
     )
 
 
@@ -330,6 +363,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--min-confidence", type=float, default=0.35)
     parser.add_argument("--box-padding", type=int, default=0)
+    parser.add_argument("--output-width", type=int, default=None)
+    parser.add_argument("--output-height", type=int, default=None)
+    parser.add_argument("--yaw-offset-degrees", type=float, default=0.0)
     return parser
 
 
@@ -348,6 +384,9 @@ def main() -> None:
         include_labels=args.include_labels,
         min_confidence=args.min_confidence,
         box_padding=args.box_padding,
+        output_width=args.output_width,
+        output_height=args.output_height,
+        yaw_offset_degrees=args.yaw_offset_degrees,
     )
 
     print(f"Frame used: {summary['frame_file']} (index={summary['frame_index']})")

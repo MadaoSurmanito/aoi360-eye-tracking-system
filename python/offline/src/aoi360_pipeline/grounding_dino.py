@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +24,8 @@ DETECTION_COLUMNS = [
     "model_id",
     "prompt",
 ]
+ProgressCallback = Callable[[int, int, str], None]
+LogCallback = Callable[[str], None]
 
 
 def get_frame_index(frame_path: Path) -> int:
@@ -44,6 +47,23 @@ def _lazy_import_transformers_stack():
         ) from exc
 
     return torch, Image, tqdm, AutoModelForZeroShotObjectDetection, AutoProcessor
+
+
+def _emit_log(log_callback: LogCallback | None, message: str) -> None:
+    if log_callback is not None:
+        log_callback(message)
+    else:
+        print(message)
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    current: int,
+    total: int,
+    message: str,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(current, total, message)
 
 
 def _post_process_grounding_dino_results(
@@ -89,6 +109,8 @@ def detect_frames(
     box_threshold: float = 0.35,
     text_threshold: float = 0.25,
     model_id: str = DEFAULT_MODEL_ID,
+    progress_callback: ProgressCallback | None = None,
+    log_callback: LogCallback | None = None,
 ) -> pd.DataFrame:
     torch, Image, tqdm, AutoModelForZeroShotObjectDetection, AutoProcessor = _lazy_import_transformers_stack()
 
@@ -110,8 +132,8 @@ def detect_frames(
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-    print(f"Model: {model_id}")
+    _emit_log(log_callback, f"[detect_grounding_dino] Using device: {device}")
+    _emit_log(log_callback, f"[detect_grounding_dino] Model: {model_id}")
 
     processor = AutoProcessor.from_pretrained(model_id)
     model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id).to(device)
@@ -123,52 +145,67 @@ def detect_frames(
 
     rows: list[dict[str, object]] = []
 
-    for frame_path in tqdm(frame_paths, desc="Running Grounding DINO"):
-        image = Image.open(frame_path).convert("RGB")
-        frame_index = get_frame_index(frame_path)
+    iterator = frame_paths
+    if progress_callback is None:
+        iterator = tqdm(frame_paths, desc="Running Grounding DINO")
 
-        inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
-        with torch.no_grad():
-            outputs = model(**inputs)
+    total_frames = len(frame_paths)
+    _emit_progress(progress_callback, 0, total_frames, "Loading Grounding DINO and preparing detections.")
 
-        results = _post_process_grounding_dino_results(
-            processor=processor,
-            outputs=outputs,
-            input_ids=inputs.input_ids,
-            box_threshold=box_threshold,
-            text_threshold=text_threshold,
-            target_sizes=[(image.height, image.width)],
-        )[0]
+    for processed_index, frame_path in enumerate(iterator, start=1):
+        with Image.open(frame_path) as image_handle:
+            image = image_handle.convert("RGB")
+            frame_index = get_frame_index(frame_path)
 
-        boxes = results["boxes"].cpu().tolist()
-        scores = results["scores"].cpu().tolist()
-        labels = [str(label) for label in results["labels"]]
+            inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
+            with torch.no_grad():
+                outputs = model(**inputs)
 
-        for detection_index, (box, score, label) in enumerate(zip(boxes, scores, labels)):
-            x_min, y_min, x_max, y_max = box
-            rows.append(
-                {
-                    "frame_index": frame_index,
-                    "frame_file": frame_path.name,
-                    "detection_index": detection_index,
-                    "label": label,
-                    "confidence": float(score),
-                    "x_min": float(x_min),
-                    "y_min": float(y_min),
-                    "x_max": float(x_max),
-                    "y_max": float(y_max),
-                    "source": "grounding_dino",
-                    "model_id": model_id,
-                    "prompt": text_prompt,
-                }
-            )
+            results = _post_process_grounding_dino_results(
+                processor=processor,
+                outputs=outputs,
+                input_ids=inputs.input_ids,
+                box_threshold=box_threshold,
+                text_threshold=text_threshold,
+                target_sizes=[(image.height, image.width)],
+            )[0]
+
+            boxes = results["boxes"].cpu().tolist()
+            scores = results["scores"].cpu().tolist()
+            labels = [str(label) for label in results["labels"]]
+
+            for detection_index, (box, score, label) in enumerate(zip(boxes, scores, labels)):
+                x_min, y_min, x_max, y_max = box
+                rows.append(
+                    {
+                        "frame_index": frame_index,
+                        "frame_file": frame_path.name,
+                        "detection_index": detection_index,
+                        "label": label,
+                        "confidence": float(score),
+                        "x_min": float(x_min),
+                        "y_min": float(y_min),
+                        "x_max": float(x_max),
+                        "y_max": float(y_max),
+                        "source": "grounding_dino",
+                        "model_id": model_id,
+                        "prompt": text_prompt,
+                    }
+                )
+
+        _emit_progress(
+            progress_callback,
+            processed_index,
+            total_frames,
+            f"Processed {frame_path.name} with {len(boxes)} detections.",
+        )
 
     detections = pd.DataFrame(rows, columns=DETECTION_COLUMNS)
     detections.to_csv(output_csv, index=False)
 
-    print(f"Frames processed: {len(frame_paths)}")
-    print(f"Detections exported: {len(detections)}")
-    print(f"CSV written to: {output_csv}")
+    _emit_log(log_callback, f"[detect_grounding_dino] Frames processed: {len(frame_paths)}")
+    _emit_log(log_callback, f"[detect_grounding_dino] Detections exported: {len(detections)}")
+    _emit_log(log_callback, f"[detect_grounding_dino] CSV written to: {output_csv}")
     return detections
 
 

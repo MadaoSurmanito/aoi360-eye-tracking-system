@@ -12,6 +12,15 @@ The current branch covers the first usable offline loop:
 
 This is not yet the final automated pipeline with segmentation, temporal propagation, seam handling, and tracking. It is the practical first version for testing AOI authoring against the Unity runtime.
 
+The pipeline now also includes:
+
+- a master rebuild script that regenerates the runtime assets from scratch
+- a small Tkinter GUI that lets an operator select a video, launch preprocessing, and monitor progress and logs live
+- runtime-oriented exports with:
+  - sparse AOI keyframes every `30` video frames by default
+  - lighter AOI maps at `1024x512`
+  - a baked `270` degree yaw offset so Unity does not need to compensate it every frame
+
 ## Install
 
 Recommended:
@@ -52,6 +61,28 @@ python python/offline/scripts/build_aoi_map.py --detections-csv data/interim/det
 python python/offline/scripts/build_aoi_sequence.py --detections-csv data/interim/detections/video_360_grounding_dino_boxes.csv --frames-dir data/frames/video_360 --output-maps-dir data/processed/id_maps/video_360 --output-metadata-dir data/processed/metadata/video_360 --manifest-path data/processed/metadata/video_360_aoi_sequence_manifest.json --video-name video_360.mp4 --fps 30
 ```
 
+### 5. Rebuild the complete runtime asset set from scratch
+
+This command derives the output layout from the selected video name, cleans previous generated assets, exports sparse AOI keyframes every `30` source frames, writes runtime-friendly `1024x512` AOI maps, and bakes the current `270` degree yaw offset into the exported maps.
+
+```bash
+python python/offline/scripts/rebuild_runtime_assets.py --video-path data/input_videos/video_360.mp4 --clean
+```
+
+### 6. Launch the preprocessing GUI
+
+```bash
+python python/offline/scripts/preprocess_gui.py
+```
+
+The GUI lets you:
+
+- select the input 360 video
+- tweak prompt, confidence, frame stride, output resolution, and yaw offset
+- launch the full preprocessing pipeline from one button
+- follow stage progress and useful logs in real time
+- see the resolved output folders before running anything
+
 ## Outputs
 
 - Extracted frames: `data/frames/<video_name>/`
@@ -59,6 +90,14 @@ python python/offline/scripts/build_aoi_sequence.py --detections-csv data/interi
 - AOI maps: `data/processed/id_maps/`
 - AOI keyframes: `data/processed/metadata/`
 - AOI sequence manifest: `data/processed/metadata/<video_name>_aoi_sequence_manifest.json`
+
+The rebuild script and GUI now auto-derive these paths from the selected video stem, so a file such as `my_scene.mp4` will produce:
+
+- `data/frames/my_scene/`
+- `data/interim/detections/my_scene_grounding_dino_boxes.csv`
+- `data/processed/id_maps/my_scene/`
+- `data/processed/metadata/my_scene/`
+- `data/processed/metadata/my_scene_aoi_sequence_manifest.json`
 
 ## Unity handoff
 
@@ -99,4 +138,4 @@ Copy-Item data\processed\metadata\video_360\*.json unity\AOI360Runtime\Assets\St
 Copy-Item data\processed\metadata\video_360_aoi_sequence_manifest.json unity\AOI360Runtime\Assets\StreamingAssets\AOIMaps\video_360\
 ```
 
-That per-frame layout is not yet consumed by the current Unity runtime, but it is the cleanest format for the next loader step keyed by `VideoPlayer.frame`.
+That per-frame layout is now consumed by the current Unity runtime loader keyed by `VideoPlayer.frame`, and it is the preferred handoff path for Phase 0 playback tests.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 
 try:
@@ -13,6 +14,25 @@ else:
 
 
 SUPPORTED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png"}
+ProgressCallback = Callable[[int, int, str], None]
+LogCallback = Callable[[str], None]
+
+
+def _emit_log(log_callback: LogCallback | None, message: str) -> None:
+    if log_callback is not None:
+        log_callback(message)
+    else:
+        print(message)
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    current: int,
+    total: int,
+    message: str,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(current, total, message)
 
 
 def extract_frames(
@@ -20,6 +40,8 @@ def extract_frames(
     output_dir: str | Path,
     every_n_frames: int = 1,
     image_extension: str = "jpg",
+    progress_callback: ProgressCallback | None = None,
+    log_callback: LogCallback | None = None,
 ) -> dict[str, int | str]:
     if cv2 is None:
         raise RuntimeError(
@@ -48,8 +70,14 @@ def extract_frames(
     if not capture.isOpened():
         raise RuntimeError(f"Could not open video: {video_path}")
 
+    total_frames = max(0, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
     frame_index = 0
     saved_count = 0
+
+    _emit_log(
+        log_callback,
+        f"[extract_frames] Reading '{video_path.name}' and saving one frame every {every_n_frames} frames.",
+    )
 
     while True:
         success, frame = capture.read()
@@ -62,8 +90,30 @@ def extract_frames(
             saved_count += 1
 
         frame_index += 1
+        should_report = (
+            progress_callback is not None and
+            (frame_index == 1 or frame_index % 30 == 0 or (total_frames > 0 and frame_index >= total_frames))
+        )
+        if should_report:
+            _emit_progress(
+                progress_callback,
+                min(frame_index, total_frames) if total_frames > 0 else frame_index,
+                total_frames if total_frames > 0 else max(frame_index, 1),
+                f"Extracted {saved_count} sparse frames so far.",
+            )
 
     capture.release()
+
+    _emit_progress(
+        progress_callback,
+        total_frames if total_frames > 0 else frame_index,
+        total_frames if total_frames > 0 else max(frame_index, 1),
+        f"Frame extraction finished with {saved_count} saved frames.",
+    )
+    _emit_log(
+        log_callback,
+        f"[extract_frames] Completed: {frame_index} frames read, {saved_count} saved into '{output_dir}'.",
+    )
 
     return {
         "video_path": str(video_path),
